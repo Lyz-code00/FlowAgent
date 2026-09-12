@@ -1,0 +1,42 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: flowagent
+      POSTGRES_USER: flowagent
+      POSTGRES_PASSWORD: flowagent
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flowagent -d flowagent"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - flowagent-postgres:/var/lib/postgresql/data
+
+  backend:
+    build:
+      context: ./backend
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      FLOWAGENT_DATABASE_URL: postgresql+asyncpg://flowagent:flowagent@postgres:5432/flowagent
+      FLOWAGENT_AUTO_CREATE_TABLES: "false"
+    ports:
+      - "8001:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./web
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  flowagent-postgres:
