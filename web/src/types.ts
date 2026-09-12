@@ -83,6 +83,15 @@ export interface RuntimeConfig {
   feishu: { configured: boolean };
 }
 
+export interface AgentConfig {
+  name: string;
+  model: string;
+  system_prompt: string;
+  max_steps: number;
+  knowledge_enabled: boolean;
+  github_enabled: boolean;
+}
+
 export type UserRole = "member" | "lead" | "admin";
 
 export interface ManagedUser {

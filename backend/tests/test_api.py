@@ -36,6 +36,31 @@ async def test_admin_can_list_users_and_update_role(monkeypatch, tmp_path) -> No
         transport = ASGITransport(app=app)
         headers = {"X-FlowAgent-Admin-Token": "test-admin-token"}
         async with AsyncClient(transport=transport, base_url="http://test") as client:
+            agent_config = await client.get("/api/v1/agent/config", headers=headers)
+            assert agent_config.status_code == 200
+            assert agent_config.json()["knowledge_enabled"] is True
+
+            updated_config = await client.put(
+                "/api/v1/agent/config",
+                headers=headers,
+                json={
+                    **agent_config.json(),
+                    "name": "研发助手",
+                    "model": "deepseek-chat-v2",
+                    "max_steps": 7,
+                    "github_enabled": False,
+                },
+            )
+            assert updated_config.status_code == 200
+            assert updated_config.json()["name"] == "研发助手"
+            assert updated_config.json()["max_steps"] == 7
+            assert updated_config.json()["github_enabled"] is False
+
+            runtime = await client.get("/api/v1/config/runtime", headers=headers)
+            assert runtime.status_code == 200
+            assert runtime.json()["llm"]["model"] == "deepseek-chat-v2"
+            assert runtime.json()["llm"]["max_steps"] == 7
+
             listed = await client.get("/api/v1/users", headers=headers)
             assert listed.status_code == 200
             users = listed.json()

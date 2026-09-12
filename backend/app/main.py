@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.agent.loop import AgentLoop
+from app.agent.loop import SYSTEM_PROMPT, AgentLoop
 from app.api.admin import router as admin_router
 from app.api.feishu import router as feishu_router
 from app.api.knowledge import router as knowledge_router
@@ -16,6 +16,7 @@ from app.rag.embedding import (
     OpenAICompatibleEmbeddingProvider,
 )
 from app.services.conversation_service import ConversationService
+from app.services.agent_config_service import AgentConfigService
 from app.services.admin_query_service import AdminQueryService
 from app.services.github_service import GitHubService
 from app.services.identity_service import IdentityService
@@ -51,15 +52,6 @@ async def lifespan(app: FastAPI):
     trace_service = TraceService(session_factory)
     conversation_service = ConversationService(
         session_factory, IdentityService()
-    )
-    provider = (
-        OpenAICompatibleProvider(
-            base_url=settings.llm_base_url,
-            api_key=settings.llm_api_key,
-            model=settings.llm_model,
-        )
-        if settings.llm_api_key
-        else DevelopmentProvider()
     )
     github_service = GitHubService(
         token=settings.github_token,
@@ -102,26 +94,54 @@ async def lifespan(app: FastAPI):
             default_assignee=settings.github_default_assignee,
         ),
     ]
-    agent = AgentLoop(
-        provider=provider,
-        tool_runner=ToolRunner(
-            trace_service=trace_service,
-            permission_service=PermissionService(
-                member_can_create_issue=settings.member_can_create_issue
-            ),
-            tools=tools,
-            timeout_seconds=settings.tool_timeout_seconds,
-        ),
-        trace_service=trace_service,
+    permission_service = PermissionService(
+        member_can_create_issue=settings.member_can_create_issue
+    )
+    agent_config_service = AgentConfigService(session_factory)
+    await agent_config_service.ensure_default(
+        model=settings.llm_model,
+        system_prompt=SYSTEM_PROMPT,
         max_steps=settings.max_agent_steps,
     )
+
+    async def resolve_agent() -> AgentLoop:
+        config = await agent_config_service.get()
+        provider = (
+            OpenAICompatibleProvider(
+                base_url=settings.llm_base_url,
+                api_key=settings.llm_api_key,
+                model=config.model,
+            )
+            if settings.llm_api_key
+            else DevelopmentProvider()
+        )
+        enabled_tools = [
+            tool
+            for tool in tools
+            if (config.knowledge_enabled or tool.name != "knowledge_search")
+            and (config.github_enabled or not tool.name.startswith("github_"))
+        ]
+        return AgentLoop(
+            provider=provider,
+            tool_runner=ToolRunner(
+                trace_service=trace_service,
+                permission_service=permission_service,
+                tools=enabled_tools,
+                timeout_seconds=settings.tool_timeout_seconds,
+            ),
+            trace_service=trace_service,
+            max_steps=config.max_steps,
+            system_prompt=config.system_prompt,
+        )
+
     app.state.db_engine = engine
     app.state.admin_query_service = AdminQueryService(session_factory)
+    app.state.agent_config_service = agent_config_service
     app.state.knowledge_service = knowledge_service
     app.state.feishu_adapter = adapter
     app.state.message_gateway = MessageGateway(
         adapter=adapter,
-        agent=agent,
+        agent_resolver=resolve_agent,
         conversation_service=conversation_service,
         trace_service=trace_service,
         context_turns=settings.context_turns,

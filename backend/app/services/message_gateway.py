@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from app.agent.loop import Agent
@@ -20,13 +21,17 @@ class MessageGateway:
         self,
         *,
         adapter: ChannelAdapter,
-        agent: Agent,
+        agent: Agent | None = None,
+        agent_resolver: Callable[[], Awaitable[Agent]] | None = None,
         conversation_service: ConversationService,
         trace_service: TraceService,
         context_turns: int = 10,
     ) -> None:
         self.adapter = adapter
+        if agent is None and agent_resolver is None:
+            raise ValueError("agent or agent_resolver is required")
         self.agent = agent
+        self.agent_resolver = agent_resolver
         self.conversation_service = conversation_service
         self.trace_service = trace_service
         self.context_turns = context_turns
@@ -44,14 +49,20 @@ class MessageGateway:
         history = await self.conversation_service.recent_history(
             inbound.conversation_id, turns=self.context_turns
         )
+        agent = (
+            await self.agent_resolver()
+            if self.agent_resolver is not None
+            else self.agent
+        )
+        assert agent is not None
         run_id = await self.trace_service.start(
             conversation_id=inbound.conversation_id,
             source_message_id=inbound.message_id,
-            model=self.agent.model_name,
+            model=agent.model_name,
         )
         run_error: str | None = None
         try:
-            response = await self.agent.run(
+            response = await agent.run(
                 message,
                 history=history,
                 run_id=run_id,

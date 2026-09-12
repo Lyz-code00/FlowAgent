@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
+    Boolean,
     DateTime,
     ForeignKey,
     Index,
@@ -31,6 +32,18 @@ class TimestampMixin:
         onupdate=func.now(),
         nullable=False,
     )
+
+
+class AgentConfig(TimestampMixin, Base):
+    __tablename__ = "agent_configs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), default="FlowAgent")
+    model: Mapped[str] = mapped_column(String(128))
+    system_prompt: Mapped[str] = mapped_column(Text)
+    max_steps: Mapped[int] = mapped_column(Integer, default=5)
+    knowledge_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    github_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
 class Tenant(TimestampMixin, Base):

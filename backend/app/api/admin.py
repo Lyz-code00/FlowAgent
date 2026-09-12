@@ -1,7 +1,7 @@
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.core.security import require_admin
 
@@ -14,6 +14,26 @@ router = APIRouter(
 
 class UserRoleUpdate(BaseModel):
     role: Literal["member", "lead", "admin"]
+
+
+class AgentConfigUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    model: str = Field(min_length=1, max_length=128)
+    system_prompt: str = Field(min_length=20, max_length=20_000)
+    max_steps: int = Field(ge=1, le=10)
+    knowledge_enabled: bool
+    github_enabled: bool
+
+
+def serialize_agent_config(config) -> dict:
+    return {
+        "name": config.name,
+        "model": config.model,
+        "system_prompt": config.system_prompt,
+        "max_steps": config.max_steps,
+        "knowledge_enabled": config.knowledge_enabled,
+        "github_enabled": config.github_enabled,
+    }
 
 
 @router.get("/dashboard/metrics")
@@ -46,12 +66,13 @@ async def update_user_role(
 @router.get("/config/runtime")
 async def runtime_config(request: Request) -> dict:
     settings = request.app.state.settings
+    agent_config = await request.app.state.agent_config_service.get()
     return {
         "environment": settings.env,
         "llm": {
-            "model": settings.llm_model,
+            "model": agent_config.model,
             "configured": bool(settings.llm_api_key),
-            "max_steps": settings.max_agent_steps,
+            "max_steps": agent_config.max_steps,
             "context_turns": settings.context_turns,
         },
         "github": {
@@ -74,6 +95,21 @@ async def runtime_config(request: Request) -> dict:
             "configured": bool(settings.feishu_app_id and settings.feishu_app_secret)
         },
     }
+
+
+@router.get("/agent/config")
+async def get_agent_config(request: Request) -> dict:
+    return serialize_agent_config(await request.app.state.agent_config_service.get())
+
+
+@router.put("/agent/config")
+async def update_agent_config(
+    payload: AgentConfigUpdate, request: Request
+) -> dict:
+    config = await request.app.state.agent_config_service.update(
+        **payload.model_dump()
+    )
+    return serialize_agent_config(config)
 
 
 @router.get("/conversations")
