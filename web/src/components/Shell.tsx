@@ -5,6 +5,7 @@ import {
   Gauge,
   LogOut,
   MessagesSquare,
+  ClipboardList,
   Settings,
   ShieldCheck,
   UserRoundCog
@@ -17,6 +18,7 @@ const nav = [
   { to: "/conversations", label: "会话与 Trace", icon: MessagesSquare },
   { to: "/knowledge", label: "知识库", icon: BookOpen },
   { to: "/users", label: "用户与权限", icon: UserRoundCog },
+  { to: "/summaries", label: "讨论沉淀", icon: ClipboardList },
   { to: "/configuration", label: "运行配置", icon: Settings }
 ];
 
@@ -25,6 +27,7 @@ const titles: Record<string, string> = {
   "/conversations": "会话与 Trace",
   "/knowledge": "知识库",
   "/users": "用户与权限",
+  "/summaries": "讨论沉淀",
   "/configuration": "运行配置"
 };
 

@@ -2,6 +2,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.main import app
 from app.schemas.message import UnifiedMessage
+from app.tools.context import ToolContext
 
 
 async def test_health_and_url_verification(monkeypatch) -> None:
@@ -36,6 +37,53 @@ async def test_admin_can_list_users_and_update_role(monkeypatch, tmp_path) -> No
         transport = ASGITransport(app=app)
         headers = {"X-FlowAgent-Admin-Token": "test-admin-token"}
         async with AsyncClient(transport=transport, base_url="http://test") as client:
+            summary_context = ToolContext(
+                tenant_id=inbound.tenant_id,
+                user_id=inbound.user_id,
+                user_role=inbound.role,
+                conversation_id=inbound.conversation_id,
+                source_message_id=inbound.message_id,
+                external_message_id="om-test-message",
+            )
+            await app.state.summary_service.save(
+                context=summary_context,
+                summary="确认修复登录超时问题。",
+                decisions=["使用连接池"],
+                bugs=["登录接口偶发超时"],
+                action_items=[
+                    {
+                        "content": "检查数据库连接池",
+                        "owner": "后端负责人",
+                        "due_date": "2026-09-15",
+                        "priority": "P1",
+                        "status": "pending",
+                    }
+                ],
+            )
+            await app.state.summary_service.save(
+                context=summary_context,
+                summary="确认修复登录超时问题。",
+                decisions=["使用连接池"],
+                bugs=["登录接口偶发超时"],
+                action_items=[],
+            )
+            summaries = await client.get("/api/v1/summaries", headers=headers)
+            assert summaries.status_code == 200
+            assert len(summaries.json()) == 1
+            assert summaries.json()[0]["decisions"] == ["使用连接池"]
+            edited = await client.put(
+                f"/api/v1/summaries/{summaries.json()[0]['id']}",
+                headers=headers,
+                json={
+                    "summary": "登录超时问题待修复。",
+                    "decisions": ["使用连接池"],
+                    "bugs": ["登录接口偶发超时"],
+                    "action_items": summaries.json()[0]["action_items"],
+                },
+            )
+            assert edited.status_code == 200
+            assert edited.json()["summary"] == "登录超时问题待修复。"
+
             agent_config = await client.get("/api/v1/agent/config", headers=headers)
             assert agent_config.status_code == 200
             assert agent_config.json()["knowledge_enabled"] is True

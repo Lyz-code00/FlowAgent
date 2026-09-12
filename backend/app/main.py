@@ -23,6 +23,7 @@ from app.services.identity_service import IdentityService
 from app.services.knowledge_service import KnowledgeService
 from app.services.message_gateway import MessageGateway
 from app.services.permission_service import PermissionService
+from app.services.summary_service import SummaryService
 from app.services.tool_operation_service import ToolOperationService
 from app.services.trace_service import TraceService
 from app.tools.github import (
@@ -32,6 +33,7 @@ from app.tools.github import (
 )
 from app.tools.knowledge import KnowledgeSearchTool
 from app.tools.runner import ToolRunner
+from app.tools.summary import SaveConversationSummaryTool
 
 
 @asynccontextmanager
@@ -81,6 +83,7 @@ async def lifespan(app: FastAPI):
         min_score=settings.knowledge_min_score,
     )
     operation_service = ToolOperationService(session_factory)
+    summary_service = SummaryService(session_factory)
     tools = [
         KnowledgeSearchTool(
             knowledge_service, default_top_k=settings.knowledge_top_k
@@ -93,6 +96,7 @@ async def lifespan(app: FastAPI):
             default_labels=settings.github_default_labels,
             default_assignee=settings.github_default_assignee,
         ),
+        SaveConversationSummaryTool(summary_service),
     ]
     permission_service = PermissionService(
         member_can_create_issue=settings.member_can_create_issue
@@ -138,6 +142,7 @@ async def lifespan(app: FastAPI):
     app.state.admin_query_service = AdminQueryService(session_factory)
     app.state.agent_config_service = agent_config_service
     app.state.knowledge_service = knowledge_service
+    app.state.summary_service = summary_service
     app.state.feishu_adapter = adapter
     app.state.message_gateway = MessageGateway(
         adapter=adapter,

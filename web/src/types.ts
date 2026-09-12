@@ -92,6 +92,27 @@ export interface AgentConfig {
   github_enabled: boolean;
 }
 
+export interface SummaryActionItem {
+  content: string;
+  owner: string | null;
+  due_date: string | null;
+  priority: string | null;
+  status: string;
+}
+
+export interface ConversationSummary {
+  id: number;
+  conversation_id: number;
+  tenant_key: string;
+  external_conversation_id: string;
+  summary: string;
+  decisions: string[];
+  bugs: string[];
+  action_items: SummaryActionItem[];
+  created_at: string;
+  updated_at: string;
+}
+
 export type UserRole = "member" | "lead" | "admin";
 
 export interface ManagedUser {

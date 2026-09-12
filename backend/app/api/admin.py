@@ -25,6 +25,21 @@ class AgentConfigUpdate(BaseModel):
     github_enabled: bool
 
 
+class SummaryActionItem(BaseModel):
+    content: str = Field(min_length=1, max_length=1000)
+    owner: str | None = Field(default=None, max_length=255)
+    due_date: str | None = Field(default=None, max_length=100)
+    priority: str | None = Field(default=None, max_length=32)
+    status: str = Field(default="pending", max_length=32)
+
+
+class ConversationSummaryUpdate(BaseModel):
+    summary: str = Field(min_length=1, max_length=10_000)
+    decisions: list[str] = Field(default_factory=list, max_length=50)
+    bugs: list[str] = Field(default_factory=list, max_length=50)
+    action_items: list[SummaryActionItem] = Field(default_factory=list, max_length=100)
+
+
 def serialize_agent_config(config) -> dict:
     return {
         "name": config.name,
@@ -110,6 +125,26 @@ async def update_agent_config(
         **payload.model_dump()
     )
     return serialize_agent_config(config)
+
+
+@router.get("/summaries")
+async def list_summaries(
+    request: Request,
+    tenant_key: str | None = Query(default=None, max_length=128),
+) -> list[dict]:
+    return await request.app.state.summary_service.list(tenant_key=tenant_key)
+
+
+@router.put("/summaries/{summary_id}")
+async def update_summary(
+    summary_id: int, payload: ConversationSummaryUpdate, request: Request
+) -> dict:
+    summary = await request.app.state.summary_service.update(
+        summary_id, **payload.model_dump()
+    )
+    if summary is None:
+        raise HTTPException(status_code=404, detail="summary not found")
+    return summary
 
 
 @router.get("/conversations")

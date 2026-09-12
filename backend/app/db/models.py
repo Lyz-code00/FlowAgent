@@ -195,6 +195,28 @@ class ToolOperation(Base):
     )
 
 
+class ConversationSummary(TimestampMixin, Base):
+    __tablename__ = "conversation_summaries"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), index=True
+    )
+    conversation_id: Mapped[int] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), index=True
+    )
+    source_message_id: Mapped[int] = mapped_column(
+        ForeignKey("messages.id", ondelete="CASCADE"), unique=True
+    )
+    created_by_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    summary: Mapped[str] = mapped_column(Text)
+    decisions: Mapped[list[str]] = mapped_column(JSON, default=list)
+    bugs: Mapped[list[str]] = mapped_column(JSON, default=list)
+    action_items: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+
+
 class KnowledgeBase(TimestampMixin, Base):
     __tablename__ = "knowledge_bases"
     __table_args__ = (
