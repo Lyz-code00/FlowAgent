@@ -1,4 +1,7 @@
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel
 
 from app.core.security import require_admin
 
@@ -9,9 +12,30 @@ router = APIRouter(
 )
 
 
+class UserRoleUpdate(BaseModel):
+    role: Literal["member", "lead", "admin"]
+
+
 @router.get("/dashboard/metrics")
 async def dashboard_metrics(request: Request) -> dict:
     return await request.app.state.admin_query_service.dashboard_metrics()
+
+
+@router.get("/users")
+async def list_users(request: Request) -> list[dict]:
+    return await request.app.state.admin_query_service.list_users()
+
+
+@router.put("/users/{user_id}/role")
+async def update_user_role(
+    user_id: int, payload: UserRoleUpdate, request: Request
+) -> dict:
+    user = await request.app.state.admin_query_service.update_user_role(
+        user_id, role=payload.role
+    )
+    if user is None:
+        raise HTTPException(status_code=404, detail="user not found")
+    return user
 
 
 @router.get("/config/runtime")

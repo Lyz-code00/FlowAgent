@@ -82,3 +82,16 @@ export interface RuntimeConfig {
   };
   feishu: { configured: boolean };
 }
+
+export type UserRole = "member" | "lead" | "admin";
+
+export interface ManagedUser {
+  id: number;
+  name: string;
+  role: UserRole;
+  tenant_key: string;
+  channels: Array<{ platform: string; external_user_id: string }>;
+  message_count: number;
+  created_at: string;
+  updated_at: string;
+}

@@ -7,10 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.db.models import (
     AgentRun,
     AgentStep,
+    ChannelAccount,
     Conversation,
     Message,
     Tenant,
     ToolOperation,
+    User,
 )
 
 
@@ -70,6 +72,67 @@ class AdminQueryService:
             "failed_calls_today": int(failed_calls or 0),
             "average_response_ms": round(float(average_latency or 0), 2),
         }
+
+    async def list_users(self) -> list[dict[str, Any]]:
+        message_count = (
+            select(func.count(Message.id))
+            .where(Message.user_id == User.id)
+            .correlate(User)
+            .scalar_subquery()
+        )
+        async with self.session_factory() as session:
+            rows = (
+                await session.execute(
+                    select(User, Tenant.external_key, message_count)
+                    .join(Tenant, Tenant.id == User.tenant_id)
+                    .order_by(User.id.asc())
+                )
+            ).all()
+            user_ids = [user.id for user, _, _ in rows]
+            accounts = (
+                (
+                    await session.scalars(
+                        select(ChannelAccount)
+                        .where(ChannelAccount.user_id.in_(user_ids))
+                        .order_by(ChannelAccount.id.asc())
+                    )
+                ).all()
+                if user_ids
+                else []
+            )
+        accounts_by_user: dict[int, list[dict[str, str]]] = {}
+        for account in accounts:
+            accounts_by_user.setdefault(account.user_id, []).append(
+                {
+                    "platform": account.platform,
+                    "external_user_id": account.external_user_id,
+                }
+            )
+        return [
+            {
+                "id": user.id,
+                "name": user.name,
+                "role": user.role,
+                "tenant_key": tenant_key,
+                "channels": accounts_by_user.get(user.id, []),
+                "message_count": int(count or 0),
+                "created_at": user.created_at.isoformat(),
+                "updated_at": user.updated_at.isoformat(),
+            }
+            for user, tenant_key, count in rows
+        ]
+
+    async def update_user_role(
+        self, user_id: int, *, role: str
+    ) -> dict[str, Any] | None:
+        async with self.session_factory() as session:
+            user = await session.get(User, user_id)
+            if user is None:
+                return None
+            user.role = role
+            await session.commit()
+        users = await self.list_users()
+        return next((item for item in users if item["id"] == user_id), None)
 
     async def list_conversations(
         self, *, tenant_key: str | None = None, limit: int = 50, offset: int = 0

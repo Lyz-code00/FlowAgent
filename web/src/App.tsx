@@ -7,6 +7,7 @@ import Conversations from "./pages/Conversations";
 import Dashboard from "./pages/Dashboard";
 import Knowledge from "./pages/Knowledge";
 import Login from "./pages/Login";
+import Users from "./pages/Users";
 
 export default function App() {
   const [authenticated, setAuthenticated] = useState(Boolean(getToken()));
@@ -23,6 +24,7 @@ export default function App() {
         <Route path="/" element={<Dashboard />} />
         <Route path="/conversations" element={<Conversations />} />
         <Route path="/knowledge" element={<Knowledge />} />
+        <Route path="/users" element={<Users />} />
         <Route path="/configuration" element={<Configuration />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

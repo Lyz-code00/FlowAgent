@@ -6,7 +6,8 @@ import {
   LogOut,
   MessagesSquare,
   Settings,
-  ShieldCheck
+  ShieldCheck,
+  UserRoundCog
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { NavLink, useLocation } from "react-router-dom";
@@ -15,6 +16,7 @@ const nav = [
   { to: "/", label: "运营概览", icon: Gauge },
   { to: "/conversations", label: "会话与 Trace", icon: MessagesSquare },
   { to: "/knowledge", label: "知识库", icon: BookOpen },
+  { to: "/users", label: "用户与权限", icon: UserRoundCog },
   { to: "/configuration", label: "运行配置", icon: Settings }
 ];
 
@@ -22,6 +24,7 @@ const titles: Record<string, string> = {
   "/": "运营概览",
   "/conversations": "会话与 Trace",
   "/knowledge": "知识库",
+  "/users": "用户与权限",
   "/configuration": "运行配置"
 };
 

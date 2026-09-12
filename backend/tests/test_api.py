@@ -1,6 +1,7 @@
 from httpx import ASGITransport, AsyncClient
 
 from app.main import app
+from app.schemas.message import UnifiedMessage
 
 
 async def test_health_and_url_verification(monkeypatch) -> None:
@@ -8,6 +9,57 @@ async def test_health_and_url_verification(monkeypatch) -> None:
     monkeypatch.setenv("FLOWAGENT_ADMIN_API_TOKEN", "test-admin-token")
     from app.core.config import get_settings
 
+    get_settings.cache_clear()
+
+
+async def test_admin_can_list_users_and_update_role(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv(
+        "FLOWAGENT_DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'users.db'}"
+    )
+    monkeypatch.setenv("FLOWAGENT_ADMIN_API_TOKEN", "test-admin-token")
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    async with app.router.lifespan_context(app):
+        inbound = await app.state.message_gateway.conversation_service.accept_inbound(
+            UnifiedMessage(
+                platform="feishu",
+                tenant_id="tenant-a",
+                external_user_id="ou-test-user",
+                conversation_id="oc-test-chat",
+                message_id="om-test-message",
+                message_type="text",
+                text="hello",
+            )
+        )
+        assert inbound is not None
+        transport = ASGITransport(app=app)
+        headers = {"X-FlowAgent-Admin-Token": "test-admin-token"}
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            listed = await client.get("/api/v1/users", headers=headers)
+            assert listed.status_code == 200
+            users = listed.json()
+            assert len(users) == 1
+            assert users[0]["role"] == "member"
+            assert users[0]["channels"] == [
+                {"platform": "feishu", "external_user_id": "ou-test-user"}
+            ]
+            assert users[0]["message_count"] == 1
+
+            updated = await client.put(
+                f"/api/v1/users/{users[0]['id']}/role",
+                headers=headers,
+                json={"role": "lead"},
+            )
+            assert updated.status_code == 200
+            assert updated.json()["role"] == "lead"
+
+            invalid = await client.put(
+                f"/api/v1/users/{users[0]['id']}/role",
+                headers=headers,
+                json={"role": "owner"},
+            )
+            assert invalid.status_code == 422
     get_settings.cache_clear()
     async with app.router.lifespan_context(app):
         transport = ASGITransport(app=app)
