@@ -123,6 +123,15 @@ curl http://localhost:8001/health
 https://your-domain.example/api/v1/channels/feishu/events
 ```
 
+使用飞书“长连接接收事件”时，无需公网回调地址。后端 API 启动后，在另一个终端启动监听器：
+
+```bash
+cd backend
+python -m app.workers.feishu_ws
+```
+
+长连接监听器接收 `im.message.receive_v1` 后，会将事件转发给本机 FlowAgent 消息网关处理。
+
 ## 测试
 
 ```bash

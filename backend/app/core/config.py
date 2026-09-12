@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     feishu_verification_token: str = ""
     feishu_encrypt_key: str = ""
     feishu_bot_open_id: str = ""
+    feishu_internal_callback_url: str = (
+        "http://127.0.0.1:8001/api/v1/channels/feishu/events"
+    )
 
     model_config = SettingsConfigDict(
         env_file=("../.env", ".env"),
