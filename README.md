@@ -41,7 +41,7 @@ cp ../.env.example ../.env
 uvicorn app.main:app --reload --port 8001
 ```
 
-`.env.example` 默认使用本地 SQLite，便于直接开发。配置 `FLOWAGENT_LLM_API_KEY`、`FLOWAGENT_LLM_BASE_URL` 和 `FLOWAGENT_LLM_MODEL` 后启用真实模型。
+`.env.example` 默认使用本地 SQLite，便于直接开发。模型接口已按 DeepSeek OpenAI-compatible API 配置为 `https://api.deepseek.com` 和 `deepseek-v4-flash`；填写 `FLOWAGENT_LLM_API_KEY` 后启用真实模型。
 
 首次启动前必须修改后台管理 Token：
 
