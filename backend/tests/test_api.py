@@ -46,6 +46,20 @@ async def test_admin_can_list_users_and_update_role(monkeypatch, tmp_path) -> No
             ]
             assert users[0]["message_count"] == 1
 
+            tenants = await client.get("/api/v1/tenants", headers=headers)
+            assert tenants.status_code == 200
+            assert tenants.json() == [
+                {
+                    "id": 1,
+                    "external_key": "tenant-a",
+                    "name": "Tenant tenant-a",
+                    "status": "active",
+                    "user_count": 1,
+                    "conversation_count": 1,
+                    "document_count": 0,
+                }
+            ]
+
             updated = await client.put(
                 f"/api/v1/users/{users[0]['id']}/role",
                 headers=headers,

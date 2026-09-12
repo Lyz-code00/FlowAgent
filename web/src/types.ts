@@ -95,3 +95,13 @@ export interface ManagedUser {
   created_at: string;
   updated_at: string;
 }
+
+export interface TenantSummary {
+  id: number;
+  external_key: string;
+  name: string;
+  status: string;
+  user_count: number;
+  conversation_count: number;
+  document_count: number;
+}

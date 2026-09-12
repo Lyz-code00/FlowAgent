@@ -26,6 +26,11 @@ async def list_users(request: Request) -> list[dict]:
     return await request.app.state.admin_query_service.list_users()
 
 
+@router.get("/tenants")
+async def list_tenants(request: Request) -> list[dict]:
+    return await request.app.state.admin_query_service.list_tenants()
+
+
 @router.put("/users/{user_id}/role")
 async def update_user_role(
     user_id: int, payload: UserRoleUpdate, request: Request

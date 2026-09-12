@@ -9,6 +9,8 @@ from app.db.models import (
     AgentStep,
     ChannelAccount,
     Conversation,
+    KnowledgeBase,
+    KnowledgeDocument,
     Message,
     Tenant,
     ToolOperation,
@@ -120,6 +122,53 @@ class AdminQueryService:
                 "updated_at": user.updated_at.isoformat(),
             }
             for user, tenant_key, count in rows
+        ]
+
+    async def list_tenants(self) -> list[dict[str, Any]]:
+        user_count = (
+            select(func.count(User.id))
+            .where(User.tenant_id == Tenant.id)
+            .correlate(Tenant)
+            .scalar_subquery()
+        )
+        conversation_count = (
+            select(func.count(Conversation.id))
+            .where(Conversation.tenant_id == Tenant.id)
+            .correlate(Tenant)
+            .scalar_subquery()
+        )
+        document_count = (
+            select(func.count(KnowledgeDocument.id))
+            .join(
+                KnowledgeBase,
+                KnowledgeBase.id == KnowledgeDocument.knowledge_base_id,
+            )
+            .where(KnowledgeBase.tenant_id == Tenant.id)
+            .correlate(Tenant)
+            .scalar_subquery()
+        )
+        async with self.session_factory() as session:
+            rows = (
+                await session.execute(
+                    select(
+                        Tenant,
+                        user_count,
+                        conversation_count,
+                        document_count,
+                    ).order_by(Tenant.id.asc())
+                )
+            ).all()
+        return [
+            {
+                "id": tenant.id,
+                "external_key": tenant.external_key,
+                "name": tenant.name,
+                "status": tenant.status,
+                "user_count": int(users or 0),
+                "conversation_count": int(conversations or 0),
+                "document_count": int(documents or 0),
+            }
+            for tenant, users, conversations, documents in rows
         ]
 
     async def update_user_role(
