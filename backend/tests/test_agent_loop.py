@@ -255,6 +255,8 @@ def test_attachment_content_contains_images_and_extracted_files() -> None:
     content = AgentLoop._content_from_message(message)
     assert isinstance(content, list)
     assert content[0]["type"] == "text"
+    assert "已成功下载并附加真实图片" in content[0]["text"]
+    assert "不得声称未收到图片" in content[0]["text"]
     assert "重要待办" in content[0]["text"]
     assert content[1]["image_url"]["url"].startswith("data:image/png;base64,")
 

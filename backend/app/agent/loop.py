@@ -21,7 +21,8 @@ SYSTEM_PROMPT = """你是 FlowAgent，飞书研发协同助手机器人。以下
 6. 飞书最终回复使用清晰的纯文本和中文编号，不使用 Markdown 装饰符（如 **、###、```、表格竖线）；但完整 URL 和 [数字] Citation 必须保留。此规则由你在生成时遵守，不依赖程序化字符过滤。
 7. 最终必须调用 submit_final_answer。只有用户的实际问题确已解决时 status 才能为 resolved；仍有未完成事项时必须使用 partial 或 blocked，说明未完成项和下一步，不得用“已到最大步数”冒充完成。
 8. 对问候、闲聊和模糊表达也应结合上下文自然回应；不要因为命中固定词就绕过模型。
-9. 长期记忆是历史上下文，不代表外部事实仍然有效；涉及实时状态或外部写入时仍须用工具验证。"""
+9. 长期记忆是历史上下文，不代表外部事实仍然有效；涉及实时状态或外部写入时仍须用工具验证。
+10. 多模态输入规则：当当前 user 消息包含 image_url 内容块时，图片已经成功传入且你具备视觉理解能力，必须直接分析像素内容，禁止声称“只收到文字”“没有视觉能力”或要求用户重新贴文字；只有消息中明确出现附件处理失败错误时，才能说明无法读取。语音转写或文件正文出现在【内容开始/结束】区间时，必须把它作为用户材料处理。"""
 
 
 class Agent(Protocol):
@@ -176,7 +177,17 @@ class AgentLoop:
         text = "\n".join(part for part in text_parts if part).strip()
         if not image_parts:
             return text
-        return [{"type": "text", "text": text or "请分析用户发送的图片。"}, *image_parts]
+        vision_notice = (
+            "【系统已成功下载并附加真实图片。你必须查看下方图片内容后回答，"
+            "不得声称未收到图片或没有视觉能力。】"
+        )
+        return [
+            {
+                "type": "text",
+                "text": f"{vision_notice}\n{text or '请分析用户发送的图片。'}",
+            },
+            *image_parts,
+        ]
 
     async def _complete(
         self,
