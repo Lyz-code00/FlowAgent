@@ -24,6 +24,7 @@ services:
       FLOWAGENT_AUTO_CREATE_TABLES: "false"
       HF_HOME: /models/huggingface
       HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}
+      HF_HUB_DISABLE_XET: "1"
     volumes:
       - flowagent-model-cache:/models/huggingface
     ports:
