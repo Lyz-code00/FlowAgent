@@ -33,6 +33,16 @@ class GitHubIssue(BaseModel):
     assignees: list[str] = Field(default_factory=list)
 
 
+class GitHubChange(BaseModel):
+    kind: str
+    identifier: str
+    title: str
+    author: str | None = None
+    state: str | None = None
+    html_url: str
+    updated_at: str | None = None
+
+
 class GitHubService:
     def __init__(
         self,
@@ -99,7 +109,60 @@ class GitHubService:
         )
         return self._parse_issue(data)
 
-    async def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+    async def check_connection(self) -> dict[str, Any]:
+        data = await self._request("GET", f"/repos/{self.owner}/{self.repo}")
+        return {
+            "connected": True,
+            "full_name": data.get("full_name") or f"{self.owner}/{self.repo}",
+            "private": bool(data.get("private")),
+            "default_branch": data.get("default_branch"),
+        }
+
+    async def recent_changes(self, *, limit: int = 10) -> list[GitHubChange]:
+        page_size = max(1, min(limit, 20))
+        commits = await self._request(
+            "GET",
+            f"/repos/{self.owner}/{self.repo}/commits",
+            params={"per_page": page_size},
+        )
+        pulls = await self._request(
+            "GET",
+            f"/repos/{self.owner}/{self.repo}/pulls",
+            params={
+                "state": "all",
+                "sort": "updated",
+                "direction": "desc",
+                "per_page": page_size,
+            },
+        )
+        changes = [
+            GitHubChange(
+                kind="commit",
+                identifier=str(item.get("sha", ""))[:7],
+                title=str((item.get("commit") or {}).get("message") or "").splitlines()[0],
+                author=(item.get("author") or {}).get("login")
+                or (item.get("commit") or {}).get("author", {}).get("name"),
+                html_url=str(item.get("html_url") or ""),
+                updated_at=(item.get("commit") or {}).get("author", {}).get("date"),
+            )
+            for item in commits
+        ]
+        changes.extend(
+            GitHubChange(
+                kind="pull_request",
+                identifier=f"#{item.get('number')}",
+                title=str(item.get("title") or ""),
+                author=(item.get("user") or {}).get("login"),
+                state=item.get("state"),
+                html_url=str(item.get("html_url") or ""),
+                updated_at=item.get("updated_at"),
+            )
+            for item in pulls
+        )
+        changes.sort(key=lambda item: item.updated_at or "", reverse=True)
+        return changes[:page_size]
+
+    async def _request(self, method: str, path: str, **kwargs: Any) -> Any:
         self._require_configuration()
         owns_client = self._client is None
         client = self._client or httpx.AsyncClient(timeout=20)

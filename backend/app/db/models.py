@@ -46,6 +46,18 @@ class AgentConfig(TimestampMixin, Base):
     github_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
+class GitHubConfig(TimestampMixin, Base):
+    __tablename__ = "github_configs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    owner: Mapped[str] = mapped_column(String(255), default="")
+    repo: Mapped[str] = mapped_column(String(255), default="")
+    token_encrypted: Mapped[str] = mapped_column(Text, default="")
+    default_labels: Mapped[list[str]] = mapped_column(JSON, default=list)
+    default_assignee: Mapped[str] = mapped_column(String(255), default="")
+    member_can_create_issue: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
 class Tenant(TimestampMixin, Base):
     __tablename__ = "tenants"
 
@@ -117,6 +129,17 @@ class Message(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
     )
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
+
+
+class Feedback(TimestampMixin, Base):
+    __tablename__ = "feedback"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    message_id: Mapped[int] = mapped_column(
+        ForeignKey("messages.id", ondelete="CASCADE"), unique=True, index=True
+    )
+    rating: Mapped[str] = mapped_column(String(16), index=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class AgentRun(Base):
@@ -195,6 +218,29 @@ class ToolOperation(Base):
     )
 
 
+class ActionConfirmation(Base):
+    __tablename__ = "action_confirmations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(16), unique=True, index=True)
+    tool_name: Mapped[str] = mapped_column(String(128), index=True)
+    args_hash: Mapped[str] = mapped_column(String(64))
+    conversation_id: Mapped[int] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    confirmed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class ConversationSummary(TimestampMixin, Base):
     __tablename__ = "conversation_summaries"
 
@@ -215,6 +261,7 @@ class ConversationSummary(TimestampMixin, Base):
     decisions: Mapped[list[str]] = mapped_column(JSON, default=list)
     bugs: Mapped[list[str]] = mapped_column(JSON, default=list)
     action_items: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    status: Mapped[str] = mapped_column(String(32), default="draft")
 
 
 class KnowledgeBase(TimestampMixin, Base):

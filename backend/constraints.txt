@@ -8,6 +8,7 @@ lark-oapi==1.7.3
 pgvector==0.5.0
 pydantic==2.13.5
 pydantic-settings==2.15.0
+pycryptodome==3.23.0
 pypdf==6.18.1
 python-multipart==0.0.32
 sqlalchemy==2.0.52

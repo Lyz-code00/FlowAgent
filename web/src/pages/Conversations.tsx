@@ -1,6 +1,6 @@
-import { ArrowLeft, Clock3, MessageSquareText, RefreshCw, Search, Workflow } from "lucide-react";
+import { ArrowLeft, Clock3, MessageSquareText, RefreshCw, Search, ThumbsDown, ThumbsUp, Workflow } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { api } from "../api";
+import { api, getToken } from "../api";
 import { EmptyState, ErrorBanner, LoadingBlock, PageHeader, StatusBadge } from "../components/Common";
 import type { Conversation, ConversationDetail, TraceRun } from "../types";
 
@@ -26,6 +26,38 @@ export default function Conversations() {
   }
   useEffect(load, []);
 
+  useEffect(() => {
+    if (!selected) return;
+    const controller = new AbortController();
+    let buffer = "";
+    async function connect() {
+      try {
+        const response = await fetch(`/api/v1/conversations/${selected!.id}/traces/stream`, {
+          headers: { "X-FlowAgent-Admin-Token": getToken() },
+          signal: controller.signal
+        });
+        if (!response.ok || !response.body) throw new Error(`Trace 实时连接失败 (${response.status})`);
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const frames = buffer.split("\n\n");
+          buffer = frames.pop() ?? "";
+          for (const frame of frames) {
+            const data = frame.split("\n").find((line) => line.startsWith("data: "));
+            if (data) setTraces(JSON.parse(data.slice(6)) as TraceRun[]);
+          }
+        }
+      } catch (reason) {
+        if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Trace 实时连接失败");
+      }
+    }
+    connect();
+    return () => controller.abort();
+  }, [selected?.id]);
+
   const filtered = useMemo(() => items.filter((item) =>
     [item.tenant_key, item.external_conversation_id, item.last_message ?? ""].some((value) => value.toLowerCase().includes(query.toLowerCase()))
   ), [items, query]);
@@ -47,6 +79,24 @@ export default function Conversations() {
     }
   }
 
+  async function rateMessage(messageId: number, rating: "positive" | "negative") {
+    const reason = rating === "negative" ? window.prompt("请简要说明这条回复哪里需要改进（可留空）") : null;
+    if (rating === "negative" && reason === null) return;
+    setError("");
+    try {
+      const feedback = await api<{ id: number; rating: "positive" | "negative"; reason: string | null }>(`/api/v1/messages/${messageId}/feedback`, {
+        method: "PUT",
+        body: JSON.stringify({ rating, reason: reason || null })
+      });
+      setSelected((current) => current ? {
+        ...current,
+        messages: current.messages.map((message) => message.id === messageId ? { ...message, feedback } : message)
+      } : current);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "反馈保存失败");
+    }
+  }
+
   if (selected || detailLoading) {
     return (
       <>
@@ -63,12 +113,19 @@ export default function Conversations() {
                     <article className={`message message--${message.role}`} key={message.id}>
                       <div className="message__meta"><strong>{message.role === "user" ? "用户" : "FlowAgent"}</strong><span>{formatTime(message.created_at)}</span></div>
                       <p>{message.content}</p>
+                      {message.role === "assistant" && (
+                        <div className="message__feedback" aria-label="回复反馈">
+                          <button className={message.feedback?.rating === "positive" ? "active" : ""} onClick={() => rateMessage(message.id, "positive")} title="有帮助"><ThumbsUp size={14} /></button>
+                          <button className={message.feedback?.rating === "negative" ? "active negative" : ""} onClick={() => rateMessage(message.id, "negative")} title="需要改进"><ThumbsDown size={14} /></button>
+                          {message.feedback && <span>已记录</span>}
+                        </div>
+                      )}
                     </article>
                   ))}
                 </div>
               </section>
               <section className="panel trace-panel">
-                <div className="panel__header"><div><h2>Agent Trace</h2><p>{traces.length} 次运行</p></div><Workflow size={20} /></div>
+                <div className="panel__header"><div><h2>Agent Trace</h2><p>{traces.length} 次运行 · 实时更新</p></div><div className="live-badge"><i />LIVE <Workflow size={20} /></div></div>
                 {!traces.length ? <EmptyState title="暂无 Trace" description="该会话还没有 Agent 运行记录。" /> : traces.map((run) => (
                   <article className="trace-run" key={run.id}>
                     <div className="trace-run__header"><div><strong>Run #{run.id}</strong><span>{run.model}</span></div><StatusBadge status={run.status} /></div>
@@ -76,10 +133,13 @@ export default function Conversations() {
                     <div className="trace-steps">
                       {run.steps.map((step) => (
                         <div className="trace-step" key={step.id}>
-                          <i /><div><strong>Step {step.step_no} · {step.name ?? step.kind}</strong><span>{step.kind.toUpperCase()} · {step.latency_ms ?? 0} ms</span>{step.error && <p>{step.error}</p>}</div><StatusBadge status={step.status} />
+                          <i /><div><strong>Step {step.step_no} · {step.name ?? step.kind}</strong><span>{step.kind.toUpperCase()} · {step.latency_ms ?? 0} ms</span>{step.error && <p>{step.error}</p>}
+                            {(step.input != null || step.output != null) && <details className="trace-payload"><summary>查看参数与结果</summary>{step.input != null && <><b>输入参数</b><pre>{JSON.stringify(step.input, null, 2)}</pre></>}{step.output != null && <><b>执行结果</b><pre>{JSON.stringify(step.output, null, 2)}</pre></>}</details>}
+                          </div><StatusBadge status={step.status} />
                         </div>
                       ))}
                     </div>
+                    {run.final_answer && <details className="trace-answer"><summary>查看最终答案</summary><p>{run.final_answer}</p></details>}
                   </article>
                 ))}
               </section>

@@ -6,6 +6,7 @@ import {
   LogOut,
   MessagesSquare,
   ClipboardList,
+  MessageCircleWarning,
   Settings,
   ShieldCheck,
   UserRoundCog
@@ -19,6 +20,7 @@ const nav = [
   { to: "/knowledge", label: "知识库", icon: BookOpen },
   { to: "/users", label: "用户与权限", icon: UserRoundCog },
   { to: "/summaries", label: "讨论沉淀", icon: ClipboardList },
+  { to: "/feedback", label: "反馈与 Bad Case", icon: MessageCircleWarning },
   { to: "/configuration", label: "运行配置", icon: Settings }
 ];
 
@@ -28,6 +30,7 @@ const titles: Record<string, string> = {
   "/knowledge": "知识库",
   "/users": "用户与权限",
   "/summaries": "讨论沉淀",
+  "/feedback": "反馈与 Bad Case",
   "/configuration": "运行配置"
 };
 

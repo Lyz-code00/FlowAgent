@@ -155,3 +155,18 @@ async def test_knowledge_tool_returns_citation_contract() -> None:
     assert result.success is True
     assert result.display_data["results"][0]["citation_id"] == 1
     assert "[citation_id]" in result.llm_content
+
+
+def test_bm25_prioritizes_exact_technical_terms_and_chinese_phrases() -> None:
+    documents = [
+        "常规登录说明与用户帮助文档。",
+        "支付回调 PaymentSucceededEvent 失败时检查 MQ lag 和错误码 E_PAY_402。",
+        "订单列表分页接口说明。",
+    ]
+    scores = KnowledgeService._bm25_scores(
+        "支付回调 E_PAY_402",
+        documents,
+    )
+    assert scores[1] > scores[0]
+    assert scores[1] > scores[2]
+    assert scores[1] > 0

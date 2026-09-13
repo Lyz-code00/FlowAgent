@@ -15,17 +15,25 @@ FlowAgent 是面向软件研发团队的飞书 AI 研发协同工作台。当前
 - 支持 OpenAI-compatible `/chat/completions` Provider。
 - Agent Loop 最多执行 5 步，并记录 LLM/Tool Step、耗时、状态和最终答案。
 - 支持 `github_search_issue`、`github_get_issue` 和 `github_create_issue`。
+- 支持 `github_recent_changes`，按时间合并展示近期 Commit 与 Pull Request。
 - Tool 参数由严格 Pydantic Schema 校验，未知字段和非法值会返回给 Agent 修正。
 - GitHub 写操作执行服务端 RBAC；默认只有 `lead` 和 `admin` 可以创建 Issue。
 - 创建 Issue 使用数据库 `operation_id` 幂等，同一来源消息不会重复创建。
 - GitHub 鉴权、限流、超时及 API 错误会转换为明确的 Tool 错误。
+- GitHub 配置可在后台编辑并测试连接；Token 使用 AES-GCM 加密落库，接口永不回显明文。
+- P0/P1 Issue 创建必须经过一次性确认码二次确认，确认码绑定用户、会话和完整操作参数。
+- 只读 Tool 发生暂时性异常时最多重试 3 次并指数退避；外部写操作不会盲目重试。
 - 支持 Markdown、TXT 和文本型 PDF 知识文档导入。
 - 文档按自然边界重叠分块，并通过可配置的 Embedding Provider 建立索引。
 - PostgreSQL 使用 pgvector 保存向量；SQLite 使用 JSON 便于本地开发和测试。
 - `knowledge_search` 严格按当前 Tenant 检索并返回带编号的 Citation 证据。
+- 知识检索融合 Dense Embedding 与 BM25，对中文短语、错误码和技术标识符进行混合排序。
 - 未检索到可靠证据时明确返回空召回，不伪造引用。
 - 未配置 LLM Key 时使用明确标记的本地开发响应，不会伪装成真实模型结果。
-- 提供蓝白企业风格的 React 管理后台，覆盖运行看板、会话、Agent Trace、知识库和运行配置。
+- 提供蓝白企业风格的 React 管理后台，覆盖运行看板、会话、实时 Agent Trace、知识库、讨论沉淀、用户权限、反馈与运行配置。
+- 讨论摘要支持编辑、确认，并将待办幂等转换为真实 GitHub Issue。
+- Agent 回复支持正向/负向反馈，负向反馈集中进入 Bad Case 页面。
+- Agent Trace 通过鉴权 SSE 实时更新，可展开查看 Tool 参数、结果、异常与最终答案。
 - 管理 API 与知识库 API 通过独立 Admin Token 保护，前端仅在当前浏览器会话中保存 Token。
 
 ## 本地运行
@@ -160,4 +168,4 @@ web/src/
 
 ## 下一里程碑
 
-下一阶段建议接入组织级单点登录（OIDC/SSO）、完善用户与角色管理，并增加真实环境的端到端验收和可观测性告警。
+v0.1 PRD 核心闭环已完成。下一阶段可接入组织级单点登录（OIDC/SSO）、钉钉/企业微信 Channel Adapter、Sentry/Prometheus 监控工具，以及基于 Bad Case 的离线评估与 Rerank。

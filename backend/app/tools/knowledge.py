@@ -18,6 +18,7 @@ class KnowledgeSearchTool(Tool):
         "Search the current tenant's internal knowledge base and return cited evidence."
     )
     args_model = KnowledgeSearchArgs
+    retryable = True
 
     def __init__(self, service: KnowledgeService, *, default_top_k: int = 5) -> None:
         self.service = service
@@ -38,6 +39,8 @@ class KnowledgeSearchTool(Tool):
                 "locator": hit.source_locator,
                 "content": hit.content,
                 "score": hit.score,
+                "dense_score": hit.dense_score,
+                "lexical_score": hit.lexical_score,
             }
             for hit in hits
         ]

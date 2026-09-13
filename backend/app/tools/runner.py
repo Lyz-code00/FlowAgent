@@ -18,10 +18,14 @@ class ToolRunner:
         permission_service: PermissionService | None = None,
         tools: list[Tool] | None = None,
         timeout_seconds: float = 15,
+        max_attempts: int = 3,
+        retry_backoff_seconds: float = 0.2,
     ) -> None:
         self.trace_service = trace_service
         self.permission_service = permission_service or PermissionService()
         self.timeout_seconds = timeout_seconds
+        self.max_attempts = max(1, max_attempts)
+        self.retry_backoff_seconds = max(0, retry_backoff_seconds)
         self._tools = {tool.name: tool for tool in tools or []}
 
     def definitions(self) -> list[dict]:
@@ -44,8 +48,20 @@ class ToolRunner:
             self.permission_service.require(
                 role=context.user_role, permission=tool.permission
             )
-            async with asyncio.timeout(self.timeout_seconds):
-                result = await tool.run(context, args)
+            attempts = self.max_attempts if tool.retryable else 1
+            for attempt in range(1, attempts + 1):
+                try:
+                    async with asyncio.timeout(self.timeout_seconds):
+                        result = await tool.run(context, args)
+                    if attempt > 1:
+                        result.display_data["retry_attempts"] = attempt
+                    break
+                except Exception:
+                    if attempt >= attempts:
+                        raise
+                    await asyncio.sleep(
+                        self.retry_backoff_seconds * (2 ** (attempt - 1))
+                    )
         except ValidationError as exc:
             result = self._error_response(
                 call.name, "invalid tool arguments", exc.errors(include_url=False)

@@ -9,6 +9,7 @@ from app.db.models import (
     AgentStep,
     ChannelAccount,
     Conversation,
+    Feedback,
     KnowledgeBase,
     KnowledgeDocument,
     Message,
@@ -241,6 +242,25 @@ class AdminQueryService:
                     .order_by(Message.id.asc())
                 )
             ).all()
+            feedback_rows = (
+                (
+                    await session.scalars(
+                        select(Feedback).where(
+                            Feedback.message_id.in_([message.id for message in messages])
+                        )
+                    )
+                ).all()
+                if messages
+                else []
+            )
+        feedback_by_message = {
+            feedback.message_id: {
+                "id": feedback.id,
+                "rating": feedback.rating,
+                "reason": feedback.reason,
+            }
+            for feedback in feedback_rows
+        }
         return {
             "id": conversation.id,
             "tenant_key": tenant_key,
@@ -253,6 +273,7 @@ class AdminQueryService:
                     "content": message.content,
                     "external_message_id": message.external_message_id,
                     "created_at": message.created_at.isoformat(),
+                    "feedback": feedback_by_message.get(message.id),
                 }
                 for message in messages
             ],

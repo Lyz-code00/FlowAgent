@@ -2,7 +2,7 @@ import { RefreshCw, ShieldCheck, UserRoundCog, UsersRound } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { EmptyState, ErrorBanner, LoadingBlock, PageHeader, StatusBadge } from "../components/Common";
-import type { ManagedUser, UserRole } from "../types";
+import type { ManagedUser, RuntimeConfig, UserRole } from "../types";
 
 const roleLabels: Record<UserRole, string> = {
   member: "普通成员",
@@ -26,12 +26,16 @@ export default function Users() {
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<number | null>(null);
   const [error, setError] = useState("");
+  const [memberCanCreate, setMemberCanCreate] = useState(false);
 
   function load() {
     setLoading(true);
     setError("");
-    api<ManagedUser[]>("/api/v1/users")
-      .then(setUsers)
+    Promise.all([
+      api<ManagedUser[]>("/api/v1/users"),
+      api<RuntimeConfig>("/api/v1/config/runtime")
+    ])
+      .then(([nextUsers, runtime]) => { setUsers(nextUsers); setMemberCanCreate(runtime.github.member_can_create_issue); })
       .catch((reason) => setError(reason.message))
       .finally(() => setLoading(false));
   }
@@ -72,6 +76,15 @@ export default function Users() {
         <div><UsersRound size={22} /><span><strong>{counts.total}</strong> 个已识别用户</span></div>
         <div><ShieldCheck size={22} /><span><strong>{counts.privileged}</strong> 个写操作授权用户</span></div>
         <p>权限在 Tool 执行前由服务端校验，模型无法绕过。</p>
+      </section>
+      <section className="panel permission-matrix">
+        <div className="panel__header"><div><h2>Tool 权限矩阵</h2><p>实际权限由服务端 Tool Runner 在每次执行前校验</p></div><ShieldCheck size={20} /></div>
+        <div className="table-scroll"><table><thead><tr><th>工具</th><th>普通成员</th><th>负责人</th><th>管理员</th></tr></thead><tbody>
+          <tr><td><strong>knowledge_search</strong><span className="cell-sub">检索内部知识</span></td><td>允许</td><td>允许</td><td>允许</td></tr>
+          <tr><td><strong>github_search / get / recent</strong><span className="cell-sub">读取 Issue、Commit 与 PR</span></td><td>允许</td><td>允许</td><td>允许</td></tr>
+          <tr><td><strong>github_create_issue</strong><span className="cell-sub">创建真实 Issue；P0/P1 另需二次确认</span></td><td>{memberCanCreate ? "按配置允许" : "拒绝"}</td><td>允许</td><td>允许</td></tr>
+          <tr><td><strong>管理后台配置</strong><span className="cell-sub">Agent、GitHub、知识库与角色</span></td><td>拒绝</td><td>拒绝</td><td>允许</td></tr>
+        </tbody></table></div>
       </section>
       <section className="panel table-panel">
         {loading ? <LoadingBlock /> : !users.length ? (

@@ -5,6 +5,7 @@ import Shell from "./components/Shell";
 import Configuration from "./pages/Configuration";
 import Conversations from "./pages/Conversations";
 import Dashboard from "./pages/Dashboard";
+import Feedback from "./pages/Feedback";
 import Knowledge from "./pages/Knowledge";
 import Login from "./pages/Login";
 import Summaries from "./pages/Summaries";
@@ -27,6 +28,7 @@ export default function App() {
         <Route path="/knowledge" element={<Knowledge />} />
         <Route path="/users" element={<Users />} />
         <Route path="/summaries" element={<Summaries />} />
+        <Route path="/feedback" element={<Feedback />} />
         <Route path="/configuration" element={<Configuration />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

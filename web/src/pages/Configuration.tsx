@@ -1,23 +1,30 @@
-import { Bot, BrainCircuit, CheckCircle2, Github, KeyRound, Network, Save, ShieldCheck } from "lucide-react";
+import { Bot, BrainCircuit, CheckCircle2, Github, KeyRound, Network, PlugZap, Save, ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { ErrorBanner, LoadingBlock, PageHeader, StatusBadge } from "../components/Common";
-import type { AgentConfig, RuntimeConfig } from "../types";
+import type { AgentConfig, GitHubConfig, RuntimeConfig } from "../types";
 
 export default function Configuration() {
   const [runtime, setRuntime] = useState<RuntimeConfig | null>(null);
   const [agent, setAgent] = useState<AgentConfig | null>(null);
+  const [github, setGithub] = useState<GitHubConfig | null>(null);
+  const [githubToken, setGithubToken] = useState("");
+  const [clearGithubToken, setClearGithubToken] = useState(false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [savingGithub, setSavingGithub] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState("");
 
   useEffect(() => {
     Promise.all([
       api<RuntimeConfig>("/api/v1/config/runtime"),
       api<AgentConfig>("/api/v1/agent/config"),
-    ]).then(([nextRuntime, nextAgent]) => {
+      api<GitHubConfig>("/api/v1/github/config"),
+    ]).then(([nextRuntime, nextAgent, nextGithub]) => {
       setRuntime(nextRuntime);
       setAgent(nextAgent);
+      setGithub(nextGithub);
     }).catch((reason) => setError(reason.message));
   }, []);
 
@@ -44,11 +51,45 @@ export default function Configuration() {
     }
   }
 
+  async function saveGithub() {
+    if (!github) return;
+    setSavingGithub(true);
+    setConnectionStatus("");
+    setError("");
+    try {
+      const updated = await api<GitHubConfig>("/api/v1/github/config", {
+        method: "PUT",
+        body: JSON.stringify({ ...github, token: githubToken || null, clear_token: clearGithubToken, default_assignee: github.default_assignee || "" }),
+      });
+      setGithub(updated);
+      setGithubToken("");
+      setClearGithubToken(false);
+      setRuntime((current) => current ? { ...current, github: { ...current.github, ...updated, configured: updated.token_configured && Boolean(updated.owner && updated.repo) } } : current);
+      setConnectionStatus("配置已保存");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "GitHub 配置保存失败");
+    } finally {
+      setSavingGithub(false);
+    }
+  }
+
+  async function testGithub() {
+    setConnectionStatus("正在检测…");
+    setError("");
+    try {
+      const result = await api<{ full_name: string }>("/api/v1/github/config/test", { method: "POST" });
+      setConnectionStatus(`连接成功：${result.full_name}`);
+    } catch (reason) {
+      setConnectionStatus("");
+      setError(reason instanceof Error ? reason.message : "GitHub 连接测试失败");
+    }
+  }
+
   return (
     <>
       <PageHeader title="Agent 配置" description="调整模型、行为指令与工具能力；保存后对下一条消息立即生效。" />
       {error && <ErrorBanner message={error} />}
-      {!runtime || !agent ? <LoadingBlock /> : <div className="config-grid">
+      {!runtime || !agent || !github ? <LoadingBlock /> : <div className="config-grid">
         <section className="panel agent-editor">
           <div className="agent-editor__header">
             <div className="config-card__heading-icon"><BrainCircuit size={22} /></div>
@@ -68,7 +109,13 @@ export default function Configuration() {
           </div>
         </section>
 
-        <section className="panel config-card"><div className="config-card__heading"><Github size={21} /><div><h2>GitHub</h2><p>Issue 查询与创建</p></div><StatusBadge status={runtime.github.configured} /></div><dl><div><dt>工具状态</dt><dd>{agent.github_enabled ? "已启用" : "已停用"}</dd></div><div><dt>仓库</dt><dd>{runtime.github.owner && runtime.github.repo ? `${runtime.github.owner}/${runtime.github.repo}` : "未设置"}</dd></div><div><dt>默认标签</dt><dd>{runtime.github.default_labels.join(", ") || "无"}</dd></div><div><dt>成员写权限</dt><dd>{runtime.github.member_can_create_issue ? "允许" : "禁止"}</dd></div></dl></section>
+        <section className="panel agent-editor github-editor">
+          <div className="agent-editor__header"><div className="config-card__heading-icon"><Github size={22} /></div><div><h2>GitHub 集成</h2><p>配置仓库与默认创建策略；令牌加密保存且不会回显。</p></div><StatusBadge status={github.token_configured} /></div>
+          <div className="github-form-grid"><label><span>Owner</span><input value={github.owner} onChange={(event) => setGithub({ ...github, owner: event.target.value })} /></label><label><span>Repository</span><input value={github.repo} onChange={(event) => setGithub({ ...github, repo: event.target.value })} /></label><label><span>新 Token（留空保持不变）</span><input type="password" autoComplete="new-password" value={githubToken} placeholder={github.token_configured ? "已安全保存" : "尚未配置"} onChange={(event) => { setGithubToken(event.target.value); setClearGithubToken(false); }} /></label><label><span>默认 Labels（逗号分隔）</span><input value={github.default_labels.join(", ")} onChange={(event) => setGithub({ ...github, default_labels: event.target.value.split(",").map((value) => value.trim()).filter(Boolean) })} /></label><label><span>默认 Assignee</span><input value={github.default_assignee || ""} onChange={(event) => setGithub({ ...github, default_assignee: event.target.value || null })} /></label></div>
+          <div className="capability-row github-actions"><label className="capability-toggle"><input type="checkbox" checked={github.member_can_create_issue} onChange={(event) => setGithub({ ...github, member_can_create_issue: event.target.checked })} /><span className="toggle-track" /><span><strong>允许普通成员创建 Issue</strong><small>Lead 与 Admin 始终具有写权限</small></span></label><label className="clear-secret"><input type="checkbox" checked={clearGithubToken} onChange={(event) => { setClearGithubToken(event.target.checked); if (event.target.checked) setGithubToken(""); }} />清除服务器保存的 Token</label><div className="github-action-buttons"><button className="secondary-button" onClick={testGithub} disabled={!github.token_configured}><PlugZap size={16} />测试连接</button><button className="primary-button compact" onClick={saveGithub} disabled={savingGithub || !github.owner.trim() || !github.repo.trim()}><Save size={16} />{savingGithub ? "保存中…" : "保存 GitHub 配置"}</button></div></div>
+          {connectionStatus && <div className="connection-result"><CheckCircle2 size={15} />{connectionStatus}</div>}
+        </section>
+
         <section className="panel config-card"><div className="config-card__heading"><Network size={21} /><div><h2>知识检索</h2><p>Embedding 与召回</p></div><StatusBadge status={runtime.knowledge.external_embedding_configured ? "外部模型" : "本地模式"} /></div><dl><div><dt>工具状态</dt><dd>{agent.knowledge_enabled ? "已启用" : "已停用"}</dd></div><div><dt>Embedding 模型</dt><dd>{runtime.knowledge.embedding_model}</dd></div><div><dt>向量维度</dt><dd>{runtime.knowledge.dimensions}</dd></div><div><dt>默认 Top K</dt><dd>{runtime.knowledge.default_top_k}</dd></div></dl></section>
         <section className="panel config-card"><div className="config-card__heading"><Bot size={21} /><div><h2>飞书渠道</h2><p>机器人消息入口</p></div><StatusBadge status={runtime.feishu.configured} /></div><dl><div><dt>运行环境</dt><dd>{runtime.environment}</dd></div><div><dt>事件入口</dt><dd>/api/v1/channels/feishu/events</dd></div><div><dt>上下文轮数</dt><dd>{runtime.llm.context_turns}</dd></div></dl></section>
         <section className="panel config-card"><div className="config-card__heading"><BrainCircuit size={21} /><div><h2>当前模型</h2><p>下一次会话运行参数</p></div><StatusBadge status={runtime.llm.configured} /></div><dl><div><dt>模型</dt><dd>{agent.model}</dd></div><div><dt>最大步骤</dt><dd>{agent.max_steps}</dd></div><div><dt>Agent 名称</dt><dd>{agent.name}</dd></div></dl></section>

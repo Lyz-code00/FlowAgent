@@ -8,6 +8,7 @@ from app.db.session import create_engine, create_session_factory, create_tables
 from app.llm.provider import ToolCall
 from app.schemas.message import UnifiedMessage
 from app.services.conversation_service import ConversationService
+from app.services.confirmation_service import ConfirmationService
 from app.services.github_service import (
     GitHubAuthenticationError,
     GitHubIssue,
@@ -146,6 +147,48 @@ async def test_github_service_classifies_auth_and_rate_limit_errors() -> None:
             assert exc.retry_after == "99"
 
 
+async def test_github_recent_changes_merges_commits_and_pull_requests() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/commits"):
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "sha": "abcdef123456",
+                        "html_url": "https://github.test/commit/abcdef1",
+                        "author": {"login": "alice"},
+                        "commit": {
+                            "message": "fix: login timeout\n\ndetails",
+                            "author": {"date": "2026-09-13T08:00:00Z"},
+                        },
+                    }
+                ],
+            )
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "number": 42,
+                    "title": "Improve login retries",
+                    "state": "open",
+                    "html_url": "https://github.test/pull/42",
+                    "user": {"login": "bob"},
+                    "updated_at": "2026-09-13T09:00:00Z",
+                }
+            ],
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        service = GitHubService(
+            token="token", owner="acme", repo="repo", client=client
+        )
+        changes = await service.recent_changes(limit=5)
+
+    assert [item.kind for item in changes] == ["pull_request", "commit"]
+    assert changes[0].identifier == "#42"
+    assert changes[1].title == "fix: login timeout"
+
+
 async def test_search_cannot_escape_configured_repository() -> None:
     service = GitHubService(token="token", owner="acme", repo="repo")
     try:
@@ -241,5 +284,88 @@ async def test_create_issue_rbac_and_idempotency(tmp_path) -> None:
         assert fake_github.create_calls == 1
         async with factory() as session:
             assert await session.scalar(select(func.count(ToolOperation.id))) == 1
+
+        high_risk_inbound = await conversations.accept_inbound(
+            UnifiedMessage(
+                platform="feishu",
+                tenant_id="tenant",
+                external_user_id="user",
+                conversation_id="chat",
+                message_id="om-2",
+                message_type="text",
+                text="create a P1 bug",
+            )
+        )
+        assert high_risk_inbound is not None
+        high_risk_context = ToolContext(
+            tenant_id=high_risk_inbound.tenant_id,
+            user_id=high_risk_inbound.user_id,
+            user_role="lead",
+            conversation_id=high_risk_inbound.conversation_id,
+            source_message_id=high_risk_inbound.message_id,
+            external_message_id="om-2",
+        )
+        guarded_tool = GitHubCreateIssueTool(
+            fake_github,  # type: ignore[arg-type]
+            operations,
+            confirmations=ConfirmationService(factory),
+        )
+        guarded_runner = ToolRunner(
+            trace_service=traces,  # type: ignore[arg-type]
+            permission_service=PermissionService(),
+            tools=[guarded_tool],
+        )
+        guarded_arguments = {
+            "title": "[P1] Login unavailable",
+            "body": "Affects all users",
+            "labels": ["P1"],
+        }
+        pending = await guarded_runner.run(
+            call=ToolCall(
+                id="high-risk-1",
+                name="github_create_issue",
+                arguments=guarded_arguments,
+            ),
+            run_id=2,
+            step_no=1,
+            context=high_risk_context,
+        )
+        assert pending.success is True
+        assert pending.display_data["status"] == "pending_confirmation"
+        assert fake_github.create_calls == 1
+
+        confirmation_code = pending.display_data["confirmation_code"]
+        confirmed = await guarded_runner.run(
+            call=ToolCall(
+                id="high-risk-2",
+                name="github_create_issue",
+                arguments={
+                    **guarded_arguments,
+                    "confirmation_code": confirmation_code,
+                },
+            ),
+            run_id=2,
+            step_no=2,
+            context=high_risk_context,
+        )
+        assert confirmed.success is True
+        assert fake_github.create_calls == 2
+
+        reused = await guarded_runner.run(
+            call=ToolCall(
+                id="high-risk-3",
+                name="github_create_issue",
+                arguments={
+                    **guarded_arguments,
+                    "confirmation_code": confirmation_code,
+                },
+            ),
+            run_id=2,
+            step_no=3,
+            context=high_risk_context,
+        )
+        assert reused.success is False
+        assert reused.error == "confirmation required"
+        assert fake_github.create_calls == 2
     finally:
         await engine.dispose()

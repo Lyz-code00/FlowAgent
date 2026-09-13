@@ -1,3 +1,6 @@
+import math
+import re
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -34,6 +37,8 @@ class SearchHit:
     source_locator: str
     content: str
     score: float
+    dense_score: float = 0
+    lexical_score: float = 0
 
 
 class KnowledgeService:
@@ -146,12 +151,23 @@ class KnowledgeService:
                     .limit(5000)
                 )
             ).all()
-        scored = [
-            (cosine_similarity(query_vector, chunk.embedding), chunk, document)
-            for chunk, document in rows
+        dense_scores = [
+            cosine_similarity(query_vector, chunk.embedding) for chunk, _ in rows
         ]
-        scored.sort(key=lambda item: item[0], reverse=True)
-        selected = [item for item in scored if item[0] >= self.min_score][:top_k]
+        lexical_scores = self._bm25_scores(query, [chunk.content for chunk, _ in rows])
+        max_lexical = max(lexical_scores, default=0)
+        scored = []
+        for index, (chunk, document) in enumerate(rows):
+            dense = dense_scores[index]
+            lexical = lexical_scores[index]
+            normalized_dense = max(0.0, min(1.0, (dense + 1) / 2))
+            normalized_lexical = lexical / max_lexical if max_lexical > 0 else 0
+            hybrid = 0.65 * normalized_dense + 0.35 * normalized_lexical
+            scored.append((hybrid, dense, lexical, chunk, document))
+        scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
+        selected = [
+            item for item in scored if item[1] >= self.min_score or item[2] > 0
+        ][:top_k]
         return [
             SearchHit(
                 citation_id=index,
@@ -161,9 +177,59 @@ class KnowledgeService:
                 source_locator=chunk.source_locator,
                 content=chunk.content,
                 score=round(score, 6),
+                dense_score=round(dense, 6),
+                lexical_score=round(lexical, 6),
             )
-            for index, (score, chunk, document) in enumerate(selected, 1)
+            for index, (score, dense, lexical, chunk, document) in enumerate(selected, 1)
         ]
+
+    @classmethod
+    def _bm25_scores(cls, query: str, documents: list[str]) -> list[float]:
+        if not documents:
+            return []
+        query_terms = cls._tokenize(query)
+        tokenized = [cls._tokenize(document) for document in documents]
+        if not query_terms:
+            return [0.0] * len(documents)
+        average_length = sum(len(tokens) for tokens in tokenized) / max(1, len(tokenized))
+        document_frequency = Counter(
+            term for tokens in tokenized for term in set(tokens)
+        )
+        k1 = 1.5
+        b = 0.75
+        scores: list[float] = []
+        for tokens in tokenized:
+            frequencies = Counter(tokens)
+            length_ratio = len(tokens) / average_length if average_length else 0
+            score = 0.0
+            for term in query_terms:
+                frequency = frequencies[term]
+                if not frequency:
+                    continue
+                frequency_in_documents = document_frequency[term]
+                inverse_frequency = math.log(
+                    1
+                    + (len(documents) - frequency_in_documents + 0.5)
+                    / (frequency_in_documents + 0.5)
+                )
+                score += inverse_frequency * (
+                    frequency * (k1 + 1)
+                    / (frequency + k1 * (1 - b + b * length_ratio))
+                )
+            scores.append(score)
+        return scores
+
+    @staticmethod
+    def _tokenize(text: str) -> list[str]:
+        tokens: list[str] = []
+        for segment in re.findall(r"[a-z0-9_.:/#-]+|[\u4e00-\u9fff]+", text.lower()):
+            if re.fullmatch(r"[\u4e00-\u9fff]+", segment):
+                tokens.extend(segment[index : index + 2] for index in range(len(segment) - 1))
+                if len(segment) == 1:
+                    tokens.append(segment)
+            else:
+                tokens.append(segment)
+        return tokens
 
     async def list_documents(self, *, tenant_key: str) -> list[DocumentInfo]:
         async with self.session_factory() as session:

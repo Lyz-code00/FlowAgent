@@ -1,8 +1,35 @@
 from httpx import ASGITransport, AsyncClient
 
 from app.main import app
+from app.db.models import GitHubConfig, Message
+from app.db.session import create_session_factory
+from app.services.github_service import GitHubIssue
 from app.schemas.message import UnifiedMessage
 from app.tools.context import ToolContext
+
+
+class FakeSummaryGitHubService:
+    def __init__(self) -> None:
+        self.create_calls = 0
+
+    async def create_issue(self, **kwargs) -> GitHubIssue:
+        self.create_calls += 1
+        return GitHubIssue(
+            number=88,
+            title=kwargs["title"],
+            state="open",
+            html_url="https://github.test/issues/88",
+            body=kwargs["body"],
+            labels=kwargs["labels"],
+        )
+
+    async def check_connection(self) -> dict:
+        return {
+            "connected": True,
+            "full_name": "acme/flowagent",
+            "private": True,
+            "default_branch": "main",
+        }
 
 
 async def test_health_and_url_verification(monkeypatch) -> None:
@@ -34,6 +61,17 @@ async def test_admin_can_list_users_and_update_role(monkeypatch, tmp_path) -> No
             )
         )
         assert inbound is not None
+        factory = create_session_factory(app.state.db_engine)
+        async with factory() as session:
+            assistant_message = Message(
+                conversation_id=inbound.conversation_id,
+                role="assistant",
+                content="服务当前运行正常。",
+            )
+            session.add(assistant_message)
+            await session.commit()
+            await session.refresh(assistant_message)
+            assistant_message_id = assistant_message.id
         transport = ASGITransport(app=app)
         headers = {"X-FlowAgent-Admin-Token": "test-admin-token"}
         async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -65,7 +103,15 @@ async def test_admin_can_list_users_and_update_role(monkeypatch, tmp_path) -> No
                 summary="确认修复登录超时问题。",
                 decisions=["使用连接池"],
                 bugs=["登录接口偶发超时"],
-                action_items=[],
+                action_items=[
+                    {
+                        "content": "检查数据库连接池",
+                        "owner": "后端负责人",
+                        "due_date": "2026-09-15",
+                        "priority": "P1",
+                        "status": "pending",
+                    }
+                ],
             )
             summaries = await client.get("/api/v1/summaries", headers=headers)
             assert summaries.status_code == 200
@@ -83,6 +129,104 @@ async def test_admin_can_list_users_and_update_role(monkeypatch, tmp_path) -> No
             )
             assert edited.status_code == 200
             assert edited.json()["summary"] == "登录超时问题待修复。"
+            assert edited.json()["status"] == "draft"
+
+            blocked = await client.post(
+                f"/api/v1/summaries/{summaries.json()[0]['id']}/actions/0/github-issue",
+                headers=headers,
+            )
+            assert blocked.status_code == 409
+
+            confirmed = await client.post(
+                f"/api/v1/summaries/{summaries.json()[0]['id']}/confirm",
+                headers=headers,
+            )
+            assert confirmed.status_code == 200
+            assert confirmed.json()["status"] == "confirmed"
+
+            fake_github = FakeSummaryGitHubService()
+
+            async def fake_github_resolver():
+                return fake_github
+
+            app.state.github_service_resolver = fake_github_resolver
+            issue_path = (
+                f"/api/v1/summaries/{summaries.json()[0]['id']}"
+                "/actions/0/github-issue"
+            )
+            created_issue = await client.post(issue_path, headers=headers)
+            replayed_issue = await client.post(issue_path, headers=headers)
+            assert created_issue.status_code == 200
+            assert replayed_issue.json()["number"] == 88
+            assert fake_github.create_calls == 1
+
+            refreshed = await client.get("/api/v1/summaries", headers=headers)
+            assert refreshed.json()[0]["action_items"][0]["github_issue"]["number"] == 88
+
+            github_config = await client.get("/api/v1/github/config", headers=headers)
+            assert github_config.status_code == 200
+            assert "token" not in github_config.json()
+            changed_github = await client.put(
+                "/api/v1/github/config",
+                headers=headers,
+                json={
+                    "owner": "acme",
+                    "repo": "flowagent",
+                    "token": "new-secret-token",
+                    "clear_token": False,
+                    "default_labels": ["bug", "P1", "bug"],
+                    "default_assignee": "octocat",
+                    "member_can_create_issue": True,
+                },
+            )
+            assert changed_github.status_code == 200
+            assert changed_github.json()["default_labels"] == ["bug", "P1"]
+            assert changed_github.json()["token_configured"] is True
+            assert "token" not in changed_github.json()
+
+            connection = await client.post("/api/v1/github/config/test", headers=headers)
+            assert connection.status_code == 200
+            assert connection.json()["full_name"] == "acme/flowagent"
+
+            feedback = await client.put(
+                f"/api/v1/messages/{assistant_message_id}/feedback",
+                headers=headers,
+                json={"rating": "negative", "reason": "缺少健康检查数据"},
+            )
+            assert feedback.status_code == 200
+            assert feedback.json()["rating"] == "negative"
+            feedback_again = await client.put(
+                f"/api/v1/messages/{assistant_message_id}/feedback",
+                headers=headers,
+                json={"rating": "positive", "reason": None},
+            )
+            assert feedback_again.status_code == 200
+            listed_feedback = await client.get(
+                "/api/v1/feedback?rating=positive", headers=headers
+            )
+            assert listed_feedback.status_code == 200
+            assert listed_feedback.json()[0]["message_id"] == assistant_message_id
+            detail = await client.get(
+                f"/api/v1/conversations/{inbound.conversation_id}", headers=headers
+            )
+            assistant = next(
+                message
+                for message in detail.json()["messages"]
+                if message["id"] == assistant_message_id
+            )
+            assert assistant["feedback"]["rating"] == "positive"
+            trace_stream = await client.get(
+                f"/api/v1/conversations/{inbound.conversation_id}/traces/stream?once=true",
+                headers=headers,
+            )
+            assert trace_stream.status_code == 200
+            assert trace_stream.headers["content-type"].startswith("text/event-stream")
+            assert "event: traces" in trace_stream.text
+
+            async with factory() as session:
+                stored_github = await session.get(GitHubConfig, 1)
+                assert stored_github is not None
+                assert "new-secret-token" not in stored_github.token_encrypted
 
             agent_config = await client.get("/api/v1/agent/config", headers=headers)
             assert agent_config.status_code == 200

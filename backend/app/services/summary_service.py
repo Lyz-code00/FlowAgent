@@ -38,6 +38,7 @@ class SummaryService:
                     decisions=decisions,
                     bugs=bugs,
                     action_items=action_items,
+                    status="draft",
                 )
                 session.add(row)
             else:
@@ -45,6 +46,7 @@ class SummaryService:
                 row.decisions = decisions
                 row.bugs = bugs
                 row.action_items = action_items
+                row.status = "draft"
             await session.commit()
             await session.refresh(row)
             return self._serialize(row)
@@ -86,6 +88,55 @@ class SummaryService:
             row.decisions = decisions
             row.bugs = bugs
             row.action_items = action_items
+            row.status = "draft"
+            await session.commit()
+            await session.refresh(row)
+            return self._serialize(row)
+
+    async def confirm(self, summary_id: int) -> dict[str, Any] | None:
+        async with self.session_factory() as session:
+            row = await session.get(ConversationSummary, summary_id)
+            if row is None:
+                return None
+            row.status = "confirmed"
+            await session.commit()
+            await session.refresh(row)
+            return self._serialize(row)
+
+    async def action_for_conversion(
+        self, summary_id: int, action_index: int
+    ) -> dict[str, Any] | None:
+        async with self.session_factory() as session:
+            row = await session.get(ConversationSummary, summary_id)
+            if row is None:
+                return None
+            if row.status != "confirmed":
+                raise ValueError("summary must be confirmed before creating an issue")
+            if action_index < 0 or action_index >= len(row.action_items):
+                raise IndexError("action item not found")
+            return {
+                "summary_id": row.id,
+                "tenant_id": row.tenant_id,
+                "conversation_id": row.conversation_id,
+                "source_message_id": row.source_message_id,
+                "user_id": row.created_by_user_id,
+                "summary": row.summary,
+                "action": row.action_items[action_index],
+            }
+
+    async def attach_issue(
+        self, summary_id: int, action_index: int, issue: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        async with self.session_factory() as session:
+            row = await session.get(ConversationSummary, summary_id)
+            if row is None:
+                return None
+            if action_index < 0 or action_index >= len(row.action_items):
+                raise IndexError("action item not found")
+            items = [dict(item) for item in row.action_items]
+            items[action_index]["github_issue"] = issue
+            items[action_index]["status"] = "in_progress"
+            row.action_items = items
             await session.commit()
             await session.refresh(row)
             return self._serialize(row)
@@ -99,6 +150,7 @@ class SummaryService:
             "decisions": row.decisions,
             "bugs": row.bugs,
             "action_items": row.action_items,
+            "status": row.status,
             "created_at": row.created_at.isoformat(),
             "updated_at": row.updated_at.isoformat(),
         }

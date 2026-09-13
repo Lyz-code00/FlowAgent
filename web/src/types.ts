@@ -24,6 +24,20 @@ export interface Message {
   content: string;
   external_message_id: string | null;
   created_at: string;
+  feedback: Pick<FeedbackRecord, "id" | "rating" | "reason"> | null;
+}
+
+export interface FeedbackRecord {
+  id: number;
+  message_id: number;
+  rating: "positive" | "negative";
+  reason: string | null;
+  content: string;
+  conversation_id: number;
+  tenant_key: string;
+  platform: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ConversationDetail extends Conversation {
@@ -92,12 +106,27 @@ export interface AgentConfig {
   github_enabled: boolean;
 }
 
+export interface GitHubConfig {
+  owner: string;
+  repo: string;
+  token_configured: boolean;
+  default_labels: string[];
+  default_assignee: string | null;
+  member_can_create_issue: boolean;
+}
+
 export interface SummaryActionItem {
   content: string;
   owner: string | null;
   due_date: string | null;
   priority: string | null;
   status: string;
+  github_issue?: {
+    number: number;
+    title: string;
+    state: string;
+    html_url: string;
+  } | null;
 }
 
 export interface ConversationSummary {
@@ -109,6 +138,7 @@ export interface ConversationSummary {
   decisions: string[];
   bugs: string[];
   action_items: SummaryActionItem[];
+  status: "draft" | "confirmed";
   created_at: string;
   updated_at: string;
 }

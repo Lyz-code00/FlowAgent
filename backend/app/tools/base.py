@@ -27,6 +27,7 @@ class Tool(ABC):
     name: str
     description: str
     permission: str = "read"
+    retryable: bool = False
     args_model: type[BaseModel] = EmptyArgs
 
     def definition(self) -> dict[str, Any]:

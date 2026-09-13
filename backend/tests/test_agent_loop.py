@@ -1,4 +1,5 @@
 import httpx
+from pydantic import BaseModel
 
 from app.agent.loop import AgentLoop
 from app.llm.provider import (
@@ -11,6 +12,7 @@ from app.schemas.message import UnifiedMessage
 from app.services.conversation_service import HistoryMessage
 from app.tools.runner import ToolRunner
 from app.tools.context import ToolContext
+from app.tools.base import Tool, ToolResponse
 
 
 class FakeTraceService:
@@ -34,6 +36,49 @@ class EndlessToolProvider(LLMProvider):
                 ToolCall(id=f"call-{self.calls}", name="missing_tool", arguments={})
             ]
         )
+
+
+class FlakyReadTool(Tool):
+    name = "flaky_read"
+    description = "Read transient data."
+    retryable = True
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def run(self, context: ToolContext, args: BaseModel) -> ToolResponse:
+        self.calls += 1
+        if self.calls < 3:
+            raise RuntimeError("temporary failure")
+        return ToolResponse(tool_name=self.name, success=True, llm_content="ok")
+
+
+async def test_read_tool_retries_with_bounded_attempts() -> None:
+    traces = FakeTraceService()
+    tool = FlakyReadTool()
+    runner = ToolRunner(
+        trace_service=traces,  # type: ignore[arg-type]
+        tools=[tool],
+        max_attempts=3,
+        retry_backoff_seconds=0,
+    )
+    response = await runner.run(
+        call=ToolCall(id="retry", name=tool.name, arguments={}),
+        run_id=1,
+        step_no=1,
+        context=ToolContext(
+            tenant_id=1,
+            user_id=1,
+            user_role="lead",
+            conversation_id=1,
+            source_message_id=1,
+            external_message_id="message",
+        ),
+    )
+    assert response.success is True
+    assert response.display_data["retry_attempts"] == 3
+    assert tool.calls == 3
+    assert len(traces.steps) == 1
 
 
 async def test_agent_loop_stops_at_configured_max_steps() -> None:

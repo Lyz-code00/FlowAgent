@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     env: str = "development"
     log_level: str = "INFO"
     admin_api_token: str = ""
+    config_encryption_key: str = ""
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
     database_url: str = "sqlite+aiosqlite:///./flowagent.db"
     auto_create_tables: bool = True

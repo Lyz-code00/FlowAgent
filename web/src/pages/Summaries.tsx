@@ -1,4 +1,4 @@
-import { Bug, CalendarClock, CheckCircle2, ClipboardList, Edit3, RefreshCw, Save, UserRound, X } from "lucide-react";
+import { BadgeCheck, Bug, CalendarClock, CheckCircle2, ClipboardList, Edit3, Github, RefreshCw, Save, UserRound, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { EmptyState, ErrorBanner, LoadingBlock, PageHeader, StatusBadge } from "../components/Common";
@@ -13,6 +13,7 @@ export default function Summaries() {
   const [editing, setEditing] = useState<ConversationSummary | null>(null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [busyAction, setBusyAction] = useState("");
 
   function load() {
     setError("");
@@ -44,19 +45,47 @@ export default function Summaries() {
     }
   }
 
+  async function confirm(item: ConversationSummary) {
+    setBusyAction(`confirm-${item.id}`);
+    setError("");
+    try {
+      const updated = await api<ConversationSummary>(`/api/v1/summaries/${item.id}/confirm`, { method: "POST" });
+      setItems((current) => current?.map((entry) => entry.id === item.id ? { ...entry, ...updated } : entry) ?? []);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "确认失败");
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function createIssue(item: ConversationSummary, actionIndex: number) {
+    const action = item.action_items[actionIndex];
+    if (!window.confirm(`确认将待办“${action.content}”创建为真实 GitHub Issue 吗？`)) return;
+    setBusyAction(`issue-${item.id}-${actionIndex}`);
+    setError("");
+    try {
+      await api(`/api/v1/summaries/${item.id}/actions/${actionIndex}/github-issue`, { method: "POST" });
+      load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Issue 创建失败");
+    } finally {
+      setBusyAction("");
+    }
+  }
+
   return (
     <>
       <PageHeader title="讨论沉淀" description="查看由显式指令生成的群聊总结、决策、Bug 和待办。" action={<button className="secondary-button" onClick={load}><RefreshCw size={16} />刷新</button>} />
       {error && <ErrorBanner message={error} />}
       {!items ? <LoadingBlock /> : items.length === 0 ? <section className="panel"><EmptyState title="暂无讨论总结" description="在飞书中明确要求 FlowAgent 总结讨论并提取待办后，结果会显示在这里。" /></section> : <div className="summary-list">
         {items.map((item) => <section className="panel summary-card" key={item.id}>
-          <header><div className="summary-card__icon"><ClipboardList size={19} /></div><div><strong>{item.tenant_key}</strong><span>会话 {item.external_conversation_id} · {new Date(item.updated_at).toLocaleString("zh-CN")}</span></div><button className="secondary-button" onClick={() => setEditing(structuredClone(item))}><Edit3 size={15} />编辑</button></header>
+          <header><div className="summary-card__icon"><ClipboardList size={19} /></div><div><strong>{item.tenant_key} <StatusBadge status={item.status === "confirmed" ? "已确认" : "待确认"} /></strong><span>会话 {item.external_conversation_id} · {new Date(item.updated_at).toLocaleString("zh-CN")}</span></div><div className="summary-card__actions">{item.status === "draft" && <button className="primary-button compact" disabled={busyAction === `confirm-${item.id}`} onClick={() => confirm(item)}><BadgeCheck size={15} />确认总结</button>}<button className="secondary-button" onClick={() => setEditing(structuredClone(item))}><Edit3 size={15} />编辑</button></div></header>
           <p>{item.summary}</p>
           <div className="summary-columns">
             <div><h3><CheckCircle2 size={15} />决策</h3>{item.decisions.length ? <ul>{item.decisions.map((decision) => <li key={decision}>{decision}</li>)}</ul> : <span>未识别到明确决策</span>}</div>
             <div><h3><Bug size={15} />Bug</h3>{item.bugs.length ? <ul>{item.bugs.map((bug) => <li key={bug}>{bug}</li>)}</ul> : <span>未识别到 Bug</span>}</div>
           </div>
-          <div className="todo-list"><h3>待办事项 <StatusBadge status={`${item.action_items.length} 项`} /></h3>{item.action_items.map((action, index) => <div className="todo-item" key={`${action.content}-${index}`}><div><strong>{action.content}</strong><span><UserRound size={13} />{action.owner || "未指定负责人"}<CalendarClock size={13} />{action.due_date || "未指定截止时间"}</span></div><StatusBadge status={action.status === "done" ? "已完成" : action.priority || "待处理"} /></div>)}</div>
+          <div className="todo-list"><h3>待办事项 <StatusBadge status={`${item.action_items.length} 项`} /></h3>{item.action_items.map((action, index) => <div className="todo-item" key={`${action.content}-${index}`}><div><strong>{action.content}</strong><span><UserRound size={13} />{action.owner || "未指定负责人"}<CalendarClock size={13} />{action.due_date || "未指定截止时间"}</span></div><div className="todo-item__actions"><StatusBadge status={action.status === "done" ? "已完成" : action.priority || "待处理"} />{action.github_issue ? <a className="issue-link" href={action.github_issue.html_url} target="_blank" rel="noreferrer"><Github size={14} />#{action.github_issue.number}</a> : <button className="secondary-button" disabled={item.status !== "confirmed" || busyAction === `issue-${item.id}-${index}`} title={item.status !== "confirmed" ? "请先确认总结" : "创建真实 GitHub Issue"} onClick={() => createIssue(item, index)}><Github size={14} />转 Issue</button>}</div></div>)}</div>
         </section>)}
       </div>}
 
