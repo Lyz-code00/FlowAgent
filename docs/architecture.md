@@ -26,7 +26,7 @@ flowchart TB
     end
 
     subgraph 能力层["⑤ 工具与能力层"]
-        TOOLS["业务工具<br/>knowledge_search · github_×4 · save_conversation_summary"]
+        TOOLS["业务工具<br/>knowledge_search · github_×4 · save_conversation_summary · generate_document"]
         FINAL["submit_final_answer<br/>结构化最终回答"]
         RAG["RAG 检索管道<br/>解析 → 分块 → 向量 → 混合检索"]
         GHS["GitHubService"]
@@ -129,7 +129,8 @@ sequenceDiagram
 - **飞书双入口**：WebSocket 长连接 worker + HTTP 回调，汇聚到 `POST /api/v1/channels/feishu/events`。
 - **Agent 编排**：`AgentLoop` 多步工具循环；最终回答强制走 `submit_final_answer`（强制 tool_choice + 关闭 thinking），由规章约束纯文本格式并保留真实 URL；终态区分 resolved/partial/blocked。
 - **多模态**：飞书资源 API 下载图片、语音和文件；图片进入 DeepSeek 视觉模型，语音由本地 Whisper 转写，md/txt/文本 PDF 提取后进入上下文。
+- **文档输出**：`generate_document` 在内存生成企业风格 Word 文件，Agent 响应仅临时携带二进制，飞书适配器上传后用 `file_key` 回复原消息；Trace 不存文件正文。
 - **记忆**：最近 10 轮原文之外，注入已保存摘要/决策/待办，以及历史 Issue、URL 和重要约束。
-- **7 个工具**：`knowledge_search`、`github_search_issue`、`github_get_issue`、`github_recent_changes`、`github_create_issue`（P0/P1 确认 + 幂等回放）、`save_conversation_summary`、`submit_final_answer`。
+- **8 个工具**：`knowledge_search`、`github_search_issue`、`github_get_issue`、`github_recent_changes`、`github_create_issue`（P0/P1 确认 + 幂等回放）、`save_conversation_summary`、`generate_document`、`submit_final_answer`。
 - **RAG**：解析(md/txt/pdf) → 重叠分块 → embedding（OpenAI 兼容 / 开发哈希回退）→ 混合检索（0.65 稠密余弦 + 0.35 BM25）→ `[citation_id]` 引用。
 - **前端**：React 19 + Vite + react-router，8 页面，token 存 sessionStorage，SSE 实时 Trace 流。

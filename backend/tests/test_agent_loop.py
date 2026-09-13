@@ -9,10 +9,12 @@ from app.llm.provider import (
     ToolCall,
 )
 from app.schemas.message import Attachment, UnifiedMessage
+from app.services.document_service import DocumentService
 from app.services.conversation_service import HistoryMessage
 from app.tools.runner import ToolRunner
 from app.tools.context import ToolContext
 from app.tools.base import Tool, ToolResponse
+from app.tools.document import GenerateDocumentTool
 
 
 class FakeTraceService:
@@ -57,6 +59,42 @@ class FinalAnswerProvider(LLMProvider):
                     id="final",
                     name="submit_final_answer",
                     arguments={"answer": self.answer, "status": "resolved"},
+                )
+            ]
+        )
+
+
+class DocumentProvider(LLMProvider):
+    model_name = "document-model"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def complete(
+        self, *, messages, tools, tool_choice=None, disable_thinking=False
+    ) -> LLMOutput:
+        self.calls += 1
+        if self.calls == 1:
+            return LLMOutput(
+                tool_calls=[
+                    ToolCall(
+                        id="document",
+                        name="generate_document",
+                        arguments={
+                            "title": "测试报告",
+                            "sections": [
+                                {"heading": "结论", "paragraphs": ["已完成"]}
+                            ],
+                        },
+                    )
+                ]
+            )
+        return LLMOutput(
+            tool_calls=[
+                ToolCall(
+                    id="final",
+                    name="submit_final_answer",
+                    arguments={"answer": "Word 文档已生成并附上。", "status": "resolved"},
                 )
             ]
         )
@@ -183,6 +221,45 @@ async def test_greeting_is_understood_by_model_instead_of_keyword_bypass() -> No
     assert provider.calls == 1
     assert "Issue #3" in response.content
     assert response.metadata["status"] == "resolved"
+
+
+async def test_agent_loop_preserves_generated_document_for_channel_delivery() -> None:
+    traces = FakeTraceService()
+    provider = DocumentProvider()
+    agent = AgentLoop(
+        provider=provider,
+        tool_runner=ToolRunner(
+            trace_service=traces,  # type: ignore[arg-type]
+            tools=[GenerateDocumentTool(DocumentService())],
+        ),
+        trace_service=traces,  # type: ignore[arg-type]
+    )
+    message = UnifiedMessage(
+        platform="feishu",
+        tenant_id="tenant",
+        external_user_id="user",
+        conversation_id="conversation",
+        message_id="document",
+        message_type="text",
+        text="生成 Word 文档",
+    )
+    response = await agent.run(
+        message,
+        history=[HistoryMessage(role="user", content="生成 Word 文档")],
+        run_id=1,
+        tool_context=ToolContext(
+            tenant_id=1,
+            user_id=1,
+            user_role="member",
+            conversation_id=1,
+            source_message_id=1,
+            external_message_id="document",
+        ),
+    )
+    assert provider.calls == 2
+    assert response.content == "Word 文档已生成并附上。"
+    assert response.files[0].name == "测试报告.docx"
+    assert response.files[0].data.startswith(b"PK")
 
 
 def test_verified_github_url_is_not_filtered_or_duplicated() -> None:

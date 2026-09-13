@@ -10,6 +10,7 @@ FlowAgent 是面向软件研发团队的飞书 AI 研发协同工作台。当前
 - 飞书事件转换为 `UnifiedMessage`，Agent 不读取渠道原始协议。
 - 数据库唯一约束防止同一个 `message_id` 被重复处理。
 - 通过飞书开放平台获取 tenant access token，并回复原消息。
+- 用户要求生成/导出文档时，可创建企业蓝白风格的真实 Word `.docx`，上传飞书并作为附件回复。
 - 自动建立 Tenant、User、ChannelAccount、Conversation 和 Message 映射。
 - 使用“最近 10 轮原文 + 已保存讨论摘要/待办 + 历史 Issue、URL 与重要约束”的分层记忆。
 - 支持 OpenAI-compatible `/chat/completions` Provider。
@@ -64,6 +65,8 @@ FLOWAGENT_TRANSCRIPTION_COMPUTE_TYPE=int8
 ```
 
 如需改用兼容 `/audio/transcriptions` 的外部服务，可将 backend 改为 `remote`，并配置 `FLOWAGENT_TRANSCRIPTION_BASE_URL`、`FLOWAGENT_TRANSCRIPTION_API_KEY` 和模型名。未配置可用转写服务时，机器人会明确提示，绝不会猜测语音内容。
+
+生成 Word 文档会使用 `generate_document` 工具在内存中创建 `.docx`，Trace 只记录文件名、类型和大小，不记录文件二进制。飞书应用需要具备消息与资源相关权限，才能上传文件并回复给用户。
 
 首次启动前必须修改后台管理 Token：
 

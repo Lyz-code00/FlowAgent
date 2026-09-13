@@ -33,6 +33,8 @@ from app.services.transcription_service import (
     LocalWhisperTranscriptionService,
     OpenAICompatibleTranscriptionService,
 )
+from app.services.document_service import DocumentService
+from app.tools.document import GenerateDocumentTool
 from app.tools.github import (
     GitHubCreateIssueTool,
     GitHubGetIssueTool,
@@ -140,6 +142,7 @@ async def lifespan(app: FastAPI):
             else DevelopmentProvider()
         )
         tools = [
+            GenerateDocumentTool(DocumentService()),
             KnowledgeSearchTool(
                 knowledge_service, default_top_k=settings.knowledge_top_k
             ),

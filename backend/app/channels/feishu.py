@@ -276,6 +276,56 @@ class FeishuAdapter(ChannelAdapter):
             if owns_client:
                 await client.aclose()
 
+    async def send_file(
+        self,
+        *,
+        source_message_id: str,
+        name: str,
+        content_type: str,
+        data: bytes,
+    ) -> None:
+        if not self.app_id or not self.app_secret:
+            raise RuntimeError("Feishu app credentials are not configured")
+        if not data:
+            raise RuntimeError("generated file is empty")
+        owns_client = self._client is None
+        client = self._client or httpx.AsyncClient(timeout=30)
+        try:
+            token = await self._tenant_access_token(client)
+            upload_response = await client.post(
+                f"{self.API_BASE}/im/v1/files",
+                headers={"Authorization": f"Bearer {token}"},
+                data={"file_type": "stream", "file_name": name},
+                files={"file": (name, data, content_type)},
+            )
+            upload_response.raise_for_status()
+            upload_payload = upload_response.json()
+            file_key = (upload_payload.get("data") or {}).get("file_key")
+            if upload_payload.get("code") != 0 or not file_key:
+                raise RuntimeError(
+                    "failed to upload file through Feishu: "
+                    f"{upload_payload.get('msg', 'unknown error')}"
+                )
+
+            reply_response = await client.post(
+                f"{self.API_BASE}/im/v1/messages/{source_message_id}/reply",
+                headers={"Authorization": f"Bearer {token}"},
+                json={
+                    "msg_type": "file",
+                    "content": json.dumps({"file_key": file_key}),
+                },
+            )
+            reply_response.raise_for_status()
+            reply_payload = reply_response.json()
+            if reply_payload.get("code") != 0:
+                raise RuntimeError(
+                    "failed to reply with file through Feishu: "
+                    f"{reply_payload.get('msg', 'unknown error')}"
+                )
+        finally:
+            if owns_client:
+                await client.aclose()
+
     async def _tenant_access_token(self, client: httpx.AsyncClient) -> str:
         if not self.app_id or not self.app_secret:
             raise RuntimeError("Feishu app credentials are not configured")

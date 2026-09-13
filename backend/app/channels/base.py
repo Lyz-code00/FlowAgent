@@ -32,6 +32,17 @@ class ChannelAdapter(ABC):
     async def send_message(self, *, source_message_id: str, content: str) -> None:
         """Send the final response back through the channel."""
 
+    async def send_file(
+        self,
+        *,
+        source_message_id: str,
+        name: str,
+        content_type: str,
+        data: bytes,
+    ) -> None:
+        """Send a generated file back through the channel."""
+        raise NotImplementedError("this channel does not support outbound files")
+
     async def enrich_message(self, message: UnifiedMessage) -> UnifiedMessage:
         """Download or decode channel resources before the agent sees the message."""
         return message

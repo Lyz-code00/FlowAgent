@@ -4,7 +4,7 @@ from typing import Any, Protocol
 from pydantic import ValidationError
 
 from app.llm.provider import ChatMessage, LLMProvider, LLMOutput, ToolCall
-from app.schemas.message import AgentResponse, UnifiedMessage
+from app.schemas.message import AgentResponse, OutboundFile, UnifiedMessage
 from app.services.conversation_service import HistoryMessage
 from app.services.trace_service import TraceService
 from app.tools.context import ToolContext
@@ -22,7 +22,8 @@ SYSTEM_PROMPT = """你是 FlowAgent，飞书研发协同助手机器人。以下
 7. 最终必须调用 submit_final_answer。只有用户的实际问题确已解决时 status 才能为 resolved；仍有未完成事项时必须使用 partial 或 blocked，说明未完成项和下一步，不得用“已到最大步数”冒充完成。
 8. 对问候、闲聊和模糊表达也应结合上下文自然回应；不要因为命中固定词就绕过模型。
 9. 长期记忆是历史上下文，不代表外部事实仍然有效；涉及实时状态或外部写入时仍须用工具验证。
-10. 多模态输入规则：当当前 user 消息包含 image_url 内容块时，图片已经成功传入且你具备视觉理解能力，必须直接分析像素内容，禁止声称“只收到文字”“没有视觉能力”或要求用户重新贴文字；只有消息中明确出现附件处理失败错误时，才能说明无法读取。语音转写或文件正文出现在【内容开始/结束】区间时，必须把它作为用户材料处理。"""
+10. 多模态输入规则：当当前 user 消息包含 image_url 内容块时，图片已经成功传入且你具备视觉理解能力，必须直接分析像素内容，禁止声称“只收到文字”“没有视觉能力”或要求用户重新贴文字；只有消息中明确出现附件处理失败错误时，才能说明无法读取。语音转写或文件正文出现在【内容开始/结束】区间时，必须把它作为用户材料处理。
+11. 文档生成规则：当用户明确要求生成、导出、下载或发送 Word 文档时，必须调用 generate_document 生成真实文件；禁止声称没有生成文件或发送文件的能力。生成前应先用已有上下文或工具取得所需事实，不得把缺失事实编进文档。"""
 
 
 class Agent(Protocol):
@@ -87,6 +88,7 @@ class AgentLoop:
                     break
         created_issue: dict[str, Any] | None = None
         verified_links: list[str] = []
+        generated_files: list[OutboundFile] = []
 
         for step_no in range(1, self.max_steps + 1):
             output = await self._complete(
@@ -98,7 +100,11 @@ class AgentLoop:
             final_call = self._extract_final_call(output.tool_calls)
             if final_call is not None:
                 return self._build_response(
-                    final_call, step_no, created_issue, verified_links
+                    final_call,
+                    step_no,
+                    created_issue,
+                    verified_links,
+                    generated_files,
                 )
             if not output.tool_calls:
                 # 模型试图用纯文本回答：强制改走结构化工具产出最终答案。
@@ -108,6 +114,7 @@ class AgentLoop:
                     step_no=step_no,
                     created_issue=created_issue,
                     verified_links=verified_links,
+                    generated_files=generated_files,
                 )
 
             messages.append(output.as_assistant_message())
@@ -129,6 +136,7 @@ class AgentLoop:
                         "html_url": tool_result.display_data["html_url"],
                     }
                 if tool_result.success:
+                    generated_files.extend(tool_result.files)
                     for url in self._extract_verified_urls(tool_result.display_data):
                         if url not in verified_links:
                             verified_links.append(url)
@@ -147,6 +155,7 @@ class AgentLoop:
             stopped=True,
             created_issue=created_issue,
             verified_links=verified_links,
+            generated_files=generated_files,
         )
 
     @staticmethod
@@ -247,6 +256,7 @@ class AgentLoop:
         step_no: int,
         created_issue: dict[str, Any] | None = None,
         verified_links: list[str] | None = None,
+        generated_files: list[OutboundFile] | None = None,
     ) -> AgentResponse:
         try:
             args = SubmitFinalAnswerArgs.model_validate(call.arguments)
@@ -271,6 +281,7 @@ class AgentLoop:
             )
         return AgentResponse(
             content="\n".join(lines),
+            files=generated_files or [],
             metadata={
                 "steps": step_no,
                 "model": self.provider.model_name,
@@ -306,6 +317,7 @@ class AgentLoop:
         stopped: bool = False,
         created_issue: dict[str, Any] | None = None,
         verified_links: list[str] | None = None,
+        generated_files: list[OutboundFile] | None = None,
     ) -> AgentResponse:
         final_step = step_no + 1
         verified_note = ""
@@ -351,11 +363,16 @@ class AgentLoop:
                     "structured": False,
                     "status": "partial" if stopped else "blocked",
                 },
+                files=generated_files or [],
             )
         final_call = self._extract_final_call(output.tool_calls)
         if final_call is not None:
             return self._build_response(
-                final_call, final_step, created_issue, verified_links
+                final_call,
+                final_step,
+                created_issue,
+                verified_links,
+                generated_files,
             )
         if stopped:
             return AgentResponse(
@@ -369,8 +386,10 @@ class AgentLoop:
                     "structured": False,
                     "status": "partial",
                 },
+                files=generated_files or [],
             )
         return AgentResponse(
             content=output.content or "当前没有生成可用回答，请稍后重试。",
             metadata={"steps": final_step, "structured": False},
+            files=generated_files or [],
         )

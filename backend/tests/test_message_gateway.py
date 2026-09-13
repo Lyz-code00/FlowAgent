@@ -14,7 +14,7 @@ from app.db.models import (
     Message,
 )
 from app.db.session import create_engine, create_session_factory, create_tables
-from app.schemas.message import AgentResponse, UnifiedMessage
+from app.schemas.message import AgentResponse, OutboundFile, UnifiedMessage
 from app.services.conversation_service import ConversationService, HistoryMessage
 from app.services.identity_service import IdentityService
 from app.services.message_gateway import MessageGateway
@@ -25,6 +25,7 @@ from app.tools.context import ToolContext
 class FakeAdapter(ChannelAdapter):
     def __init__(self) -> None:
         self.replies: list[tuple[str, str]] = []
+        self.files: list[tuple[str, str, str, bytes]] = []
 
     def verify_event(self, *, body: bytes, headers, payload) -> None:
         return None
@@ -45,6 +46,16 @@ class FakeAdapter(ChannelAdapter):
 
     async def send_message(self, *, source_message_id: str, content: str) -> None:
         self.replies.append((source_message_id, content))
+
+    async def send_file(
+        self,
+        *,
+        source_message_id: str,
+        name: str,
+        content_type: str,
+        data: bytes,
+    ) -> None:
+        self.files.append((source_message_id, name, content_type, data))
 
 
 class FakeAgent(Agent):
@@ -72,6 +83,23 @@ class FakeAgent(Agent):
         )
         await asyncio.sleep(0)
         return AgentResponse(content=f"reply: {message.text}")
+
+
+class FileAgent(FakeAgent):
+    async def run(self, message: UnifiedMessage, **kwargs) -> AgentResponse:
+        return AgentResponse(
+            content="文档已生成。",
+            files=[
+                OutboundFile(
+                    name="报告.docx",
+                    content_type=(
+                        "application/vnd.openxmlformats-officedocument."
+                        "wordprocessingml.document"
+                    ),
+                    data=b"document-bytes",
+                )
+            ],
+        )
 
 
 async def build_gateway(database_url: str):
@@ -180,5 +208,28 @@ async def test_context_includes_saved_summary_and_old_issue_links(tmp_path) -> N
         assert "飞书到 GitHub" in final_history[0].content
         assert "https://github.com/org/repo/issues/3" in final_history[0].content
         assert final_history[-1].content == "继续"
+    finally:
+        await engine.dispose()
+
+
+async def test_generated_file_is_sent_after_text_reply(tmp_path) -> None:
+    database_url = f"sqlite+aiosqlite:///{tmp_path / 'file.db'}"
+    engine, factory, adapter, _, gateway = await build_gateway(database_url)
+    gateway.agent = FileAgent(TraceService(factory))
+    try:
+        result = await gateway.process(
+            {"message_id": "om-file", "text": "生成 Word 文档"}
+        )
+        assert result.status == "processed"
+        assert adapter.replies == [("om-file", "文档已生成。")]
+        assert adapter.files == [
+            (
+                "om-file",
+                "报告.docx",
+                "application/vnd.openxmlformats-officedocument."
+                "wordprocessingml.document",
+                b"document-bytes",
+            )
+        ]
     finally:
         await engine.dispose()

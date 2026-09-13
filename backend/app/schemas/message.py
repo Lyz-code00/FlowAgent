@@ -28,6 +28,13 @@ class UnifiedMessage(BaseModel):
     raw_event: dict[str, Any] = Field(default_factory=dict, exclude=True)
 
 
+class OutboundFile(BaseModel):
+    name: str
+    content_type: str
+    data: bytes = Field(exclude=True)
+
+
 class AgentResponse(BaseModel):
     content: str
     metadata: dict[str, Any] = Field(default_factory=dict)
+    files: list[OutboundFile] = Field(default_factory=list, exclude=True)

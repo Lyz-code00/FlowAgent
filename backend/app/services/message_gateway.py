@@ -135,4 +135,19 @@ class MessageGateway:
                 "failed to send reply message_id=%s", message.message_id
             )
 
+        for generated_file in response.files:
+            try:
+                await self.adapter.send_file(
+                    source_message_id=message.message_id,
+                    name=generated_file.name,
+                    content_type=generated_file.content_type,
+                    data=generated_file.data,
+                )
+            except Exception:
+                logger.exception(
+                    "failed to send generated file message_id=%s filename=%s",
+                    message.message_id,
+                    generated_file.name,
+                )
+
         return ProcessResult(status="processed", message_id=message.message_id)

@@ -4,6 +4,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.tools.context import ToolContext
+from app.schemas.message import OutboundFile
 
 
 class StrictToolArgs(BaseModel):
@@ -21,6 +22,7 @@ class ToolResponse(BaseModel):
     display_data: dict[str, Any] = Field(default_factory=dict)
     error: str | None = None
     latency_ms: int = 0
+    files: list[OutboundFile] = Field(default_factory=list, exclude=True)
 
 
 class Tool(ABC):

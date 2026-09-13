@@ -153,3 +153,42 @@ async def test_enrich_text_file_extracts_content() -> None:
         )
         message = await adapter.enrich_message(adapter.parse_event(payload))
     assert message.attachments[0].extracted_text == "待办：修复登录问题"
+
+
+async def test_send_file_uploads_then_replies_with_file_key() -> None:
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path.endswith("/tenant_access_token/internal"):
+            return httpx.Response(
+                200, json={"code": 0, "tenant_access_token": "tenant-token"}
+            )
+        if request.url.path.endswith("/im/v1/files"):
+            assert request.headers["Authorization"] == "Bearer tenant-token"
+            body = request.content
+            assert b'name="file_type"' in body
+            assert b"stream" in body
+            assert "报告.docx".encode() in body
+            return httpx.Response(
+                200, json={"code": 0, "data": {"file_key": "file-v1"}}
+            )
+        assert request.url.path.endswith("/im/v1/messages/om-1/reply")
+        payload = json.loads(request.content)
+        assert payload["msg_type"] == "file"
+        assert json.loads(payload["content"]) == {"file_key": "file-v1"}
+        return httpx.Response(200, json={"code": 0, "msg": "ok"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        adapter = FeishuAdapter(app_id="app", app_secret="secret", client=client)
+        await adapter.send_file(
+            source_message_id="om-1",
+            name="报告.docx",
+            content_type=(
+                "application/vnd.openxmlformats-officedocument."
+                "wordprocessingml.document"
+            ),
+            data=b"docx-data",
+        )
+
+    assert len(requests) == 3
