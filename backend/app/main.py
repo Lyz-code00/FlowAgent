@@ -29,6 +29,10 @@ from app.services.permission_service import PermissionService
 from app.services.summary_service import SummaryService
 from app.services.tool_operation_service import ToolOperationService
 from app.services.trace_service import TraceService
+from app.services.transcription_service import (
+    LocalWhisperTranscriptionService,
+    OpenAICompatibleTranscriptionService,
+)
 from app.tools.github import (
     GitHubCreateIssueTool,
     GitHubGetIssueTool,
@@ -48,12 +52,26 @@ async def lifespan(app: FastAPI):
     if settings.auto_create_tables:
         await create_tables(engine)
     session_factory = create_session_factory(engine)
+    if settings.transcription_backend.lower() == "local":
+        transcription_service = LocalWhisperTranscriptionService(
+            model=settings.transcription_model or "base",
+            device=settings.transcription_device,
+            compute_type=settings.transcription_compute_type,
+        )
+    else:
+        transcription_service = OpenAICompatibleTranscriptionService(
+            base_url=settings.transcription_base_url,
+            api_key=settings.transcription_api_key,
+            model=settings.transcription_model,
+        )
     adapter = FeishuAdapter(
         app_id=settings.feishu_app_id,
         app_secret=settings.feishu_app_secret,
         verification_token=settings.feishu_verification_token,
         encrypt_key=settings.feishu_encrypt_key,
         bot_open_id=settings.feishu_bot_open_id,
+        max_attachment_bytes=settings.attachment_max_file_bytes,
+        transcription_service=transcription_service,
     )
     trace_service = TraceService(session_factory)
     conversation_service = ConversationService(
@@ -116,6 +134,7 @@ async def lifespan(app: FastAPI):
                 base_url=settings.llm_base_url,
                 api_key=settings.llm_api_key,
                 model=config.model,
+                vision_model=settings.llm_vision_model,
             )
             if settings.llm_api_key
             else DevelopmentProvider()

@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -8,6 +9,8 @@ from app.schemas.message import AgentResponse
 from app.services.conversation_service import ConversationService
 from app.services.trace_service import TraceService
 from app.tools.context import ToolContext
+
+logger = logging.getLogger("flowagent.gateway")
 
 
 @dataclass(frozen=True)
@@ -42,24 +45,44 @@ class MessageGateway:
         message = self.adapter.parse_event(payload)
         if not message.message_id:
             return ProcessResult(status="ignored")
-        inbound = await self.conversation_service.accept_inbound(message)
+        try:
+            message = await self.adapter.enrich_message(message)
+        except Exception:
+            logger.exception(
+                "failed to enrich inbound message message_id=%s", message.message_id
+            )
+            return ProcessResult(status="error", message_id=message.message_id)
+        try:
+            inbound = await self.conversation_service.accept_inbound(message)
+        except Exception:
+            logger.exception(
+                "failed to persist inbound message message_id=%s", message.message_id
+            )
+            return ProcessResult(status="error", message_id=message.message_id)
         if inbound is None:
             return ProcessResult(status="duplicate", message_id=message.message_id)
 
-        history = await self.conversation_service.recent_history(
-            inbound.conversation_id, turns=self.context_turns
-        )
-        agent = (
-            await self.agent_resolver()
-            if self.agent_resolver is not None
-            else self.agent
-        )
-        assert agent is not None
-        run_id = await self.trace_service.start(
-            conversation_id=inbound.conversation_id,
-            source_message_id=inbound.message_id,
-            model=agent.model_name,
-        )
+        try:
+            history = await self.conversation_service.recent_history(
+                inbound.conversation_id, turns=self.context_turns
+            )
+            agent = (
+                await self.agent_resolver()
+                if self.agent_resolver is not None
+                else self.agent
+            )
+            assert agent is not None
+            run_id = await self.trace_service.start(
+                conversation_id=inbound.conversation_id,
+                source_message_id=inbound.message_id,
+                model=agent.model_name,
+            )
+        except Exception:
+            logger.exception(
+                "failed to prepare agent run message_id=%s", message.message_id
+            )
+            return ProcessResult(status="error", message_id=message.message_id)
+
         run_error: str | None = None
         try:
             response = await agent.run(
@@ -82,16 +105,34 @@ class MessageGateway:
                 metadata={"error": "llm_unavailable"},
             )
 
-        await self.conversation_service.save_assistant(
-            inbound.conversation_id, response.content
-        )
-        await self.trace_service.finish(
-            run_id,
-            final_answer=response.content,
-            error=run_error,
-        )
-        await self.adapter.send_message(
-            source_message_id=message.message_id,
-            content=response.content,
-        )
+        try:
+            await self.conversation_service.save_assistant(
+                inbound.conversation_id, response.content
+            )
+            await self.trace_service.finish(
+                run_id,
+                final_answer=response.content,
+                error=run_error,
+                completion_status=(
+                    str(response.metadata.get("status"))
+                    if response.metadata.get("status") in {"partial", "blocked"}
+                    else "succeeded"
+                ),
+            )
+        except Exception:
+            logger.exception(
+                "failed to persist assistant reply message_id=%s", message.message_id
+            )
+            return ProcessResult(status="error", message_id=message.message_id)
+
+        try:
+            await self.adapter.send_message(
+                source_message_id=message.message_id,
+                content=response.content,
+            )
+        except Exception:
+            logger.exception(
+                "failed to send reply message_id=%s", message.message_id
+            )
+
         return ProcessResult(status="processed", message_id=message.message_id)

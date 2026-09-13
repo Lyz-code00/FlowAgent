@@ -63,6 +63,8 @@ export interface TraceRun {
   latency_ms: number | null;
   final_answer: string | null;
   error: string | null;
+  external_id: string | null;
+  external_url: string | null;
   started_at: string;
   completed_at: string | null;
   steps: TraceStep[];

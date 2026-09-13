@@ -57,14 +57,19 @@ class TraceService:
             await session.commit()
 
     async def finish(
-        self, run_id: int, *, final_answer: str | None = None, error: str | None = None
+        self,
+        run_id: int,
+        *,
+        final_answer: str | None = None,
+        error: str | None = None,
+        completion_status: str | None = None,
     ) -> None:
         async with self.session_factory() as session:
             run = await session.get(AgentRun, run_id)
             if run is None:
                 return
             started = self._started.pop(run_id, None)
-            run.status = "failed" if error else "succeeded"
+            run.status = "failed" if error else (completion_status or "succeeded")
             run.final_answer = final_answer
             run.error = error
             run.completed_at = datetime.now(timezone.utc)

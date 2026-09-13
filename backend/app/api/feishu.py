@@ -1,9 +1,12 @@
 import json
+import logging
 
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 
 from app.channels.base import ChannelVerificationError, UnsupportedMessage
+
+logger = logging.getLogger("flowagent.feishu")
 
 router = APIRouter(prefix="/api/v1/channels/feishu", tags=["feishu"])
 
@@ -38,7 +41,23 @@ async def receive_event(request: Request) -> JSONResponse:
     try:
         result = await request.app.state.message_gateway.process(payload)
     except UnsupportedMessage:
-        return JSONResponse({"ok": True, "status": "ignored"})
+        message_id = str(
+            payload.get("event", {}).get("message", {}).get("message_id") or ""
+        )
+        if message_id:
+            try:
+                await request.app.state.feishu_adapter.send_message(
+                    source_message_id=message_id,
+                    content=(
+                        "暂不支持该消息类型。目前可发送文本、图片、语音、Markdown、TXT "
+                        "和文本型 PDF 文件。"
+                    ),
+                )
+            except Exception:
+                logger.exception("failed to reply unsupported-message prompt")
+        return JSONResponse(
+            {"ok": True, "status": "unsupported", "message_id": message_id}
+        )
     return JSONResponse(
         {"ok": True, "status": result.status, "message_id": result.message_id}
     )

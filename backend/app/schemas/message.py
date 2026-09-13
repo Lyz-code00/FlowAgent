@@ -8,6 +8,10 @@ class Attachment(BaseModel):
     type: str
     key: str | None = None
     name: str | None = None
+    mime_type: str | None = None
+    data_base64: str | None = Field(default=None, exclude=True)
+    extracted_text: str | None = None
+    error: str | None = None
 
 
 class UnifiedMessage(BaseModel):

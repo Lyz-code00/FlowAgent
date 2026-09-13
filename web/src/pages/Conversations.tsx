@@ -130,6 +130,9 @@ export default function Conversations() {
                   <article className="trace-run" key={run.id}>
                     <div className="trace-run__header"><div><strong>Run #{run.id}</strong><span>{run.model}</span></div><StatusBadge status={run.status} /></div>
                     <div className="trace-run__meta"><Clock3 size={14} />{run.latency_ms ?? 0} ms · {run.steps.length} steps</div>
+                    {run.external_url && (
+                      <div className="trace-run__meta"><span>关联 Issue：</span><a href={run.external_url} target="_blank" rel="noreferrer">#{run.external_id} ↗</a></div>
+                    )}
                     <div className="trace-steps">
                       {run.steps.map((step) => (
                         <div className="trace-step" key={step.id}>

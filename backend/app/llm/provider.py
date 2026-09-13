@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 class ChatMessage(TypedDict, total=False):
     role: str
-    content: str | None
+    content: str | list[dict[str, Any]] | None
     tool_calls: list[dict[str, Any]]
     tool_call_id: str
 
@@ -47,7 +47,12 @@ class LLMProvider(ABC):
 
     @abstractmethod
     async def complete(
-        self, *, messages: list[ChatMessage], tools: list[dict[str, Any]]
+        self,
+        *,
+        messages: list[ChatMessage],
+        tools: list[dict[str, Any]],
+        tool_choice: dict[str, Any] | None = None,
+        disable_thinking: bool = False,
     ) -> LLMOutput:
         pass
 
@@ -59,23 +64,46 @@ class OpenAICompatibleProvider(LLMProvider):
         base_url: str,
         api_key: str,
         model: str,
+        vision_model: str = "",
         client: httpx.AsyncClient | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.model_name = model
+        self.vision_model = vision_model.strip()
         self._client = client
 
     async def complete(
-        self, *, messages: list[ChatMessage], tools: list[dict[str, Any]]
+        self,
+        *,
+        messages: list[ChatMessage],
+        tools: list[dict[str, Any]],
+        tool_choice: dict[str, Any] | None = None,
+        disable_thinking: bool = False,
     ) -> LLMOutput:
-        payload: dict[str, Any] = {"model": self.model_name, "messages": messages}
+        has_image = any(
+            isinstance(item.get("content"), list)
+            and any(
+                part.get("type") == "image_url"
+                for part in item.get("content") or []
+                if isinstance(part, dict)
+            )
+            for item in messages
+        )
+        if has_image and not self.vision_model:
+            raise RuntimeError("image input requires FLOWAGENT_LLM_VISION_MODEL")
+        payload: dict[str, Any] = {
+            "model": self.vision_model if has_image else self.model_name,
+            "messages": messages,
+        }
         if tools:
             payload["tools"] = [
                 {"type": "function", "function": definition}
                 for definition in tools
             ]
-            payload["tool_choice"] = "auto"
+            payload["tool_choice"] = tool_choice or "auto"
+        if disable_thinking:
+            payload["thinking"] = {"type": "disabled"}
         owns_client = self._client is None
         client = self._client or httpx.AsyncClient(timeout=45)
         try:
@@ -122,10 +150,17 @@ class DevelopmentProvider(LLMProvider):
     model_name = "development-fallback"
 
     async def complete(
-        self, *, messages: list[ChatMessage], tools: list[dict[str, Any]]
+        self,
+        *,
+        messages: list[ChatMessage],
+        tools: list[dict[str, Any]],
+        tool_choice: dict[str, Any] | None = None,
+        disable_thinking: bool = False,
     ) -> LLMOutput:
         user_messages = [item for item in messages if item.get("role") == "user"]
         latest = user_messages[-1].get("content", "") if user_messages else ""
+        if isinstance(latest, list):
+            latest = "[包含图片或附件的消息]"
         return LLMOutput(
             content=(
                 f"FlowAgent 已收到：{latest}\n\n"

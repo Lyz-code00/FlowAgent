@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://api.openai.com/v1"
     llm_api_key: str = ""
     llm_model: str = "gpt-4.1-mini"
+    llm_vision_model: str = ""
     max_agent_steps: int = 5
     context_turns: int = 10
     tool_timeout_seconds: float = 15
@@ -36,6 +37,13 @@ class Settings(BaseSettings):
     knowledge_top_k: int = 5
     knowledge_min_score: float = 0.05
     knowledge_max_file_bytes: int = 10 * 1024 * 1024
+    attachment_max_file_bytes: int = 10 * 1024 * 1024
+    transcription_backend: str = ""
+    transcription_base_url: str = ""
+    transcription_api_key: str = ""
+    transcription_model: str = ""
+    transcription_device: str = "cpu"
+    transcription_compute_type: str = "int8"
     feishu_app_id: str = ""
     feishu_app_secret: str = ""
     feishu_verification_token: str = ""

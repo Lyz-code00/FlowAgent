@@ -31,3 +31,7 @@ class ChannelAdapter(ABC):
     @abstractmethod
     async def send_message(self, *, source_message_id: str, content: str) -> None:
         """Send the final response back through the channel."""
+
+    async def enrich_message(self, message: UnifiedMessage) -> UnifiedMessage:
+        """Download or decode channel resources before the agent sees the message."""
+        return message

@@ -5,7 +5,14 @@ from sqlalchemy import func, select
 
 from app.agent.loop import Agent
 from app.channels.base import ChannelAdapter
-from app.db.models import AgentRun, AgentStep, ChannelAccount, Message
+from app.db.models import (
+    AgentRun,
+    AgentStep,
+    ChannelAccount,
+    Conversation,
+    ConversationSummary,
+    Message,
+)
 from app.db.session import create_engine, create_session_factory, create_tables
 from app.schemas.message import AgentResponse, UnifiedMessage
 from app.services.conversation_service import ConversationService, HistoryMessage
@@ -119,5 +126,59 @@ async def test_context_is_limited_to_ten_turns(tmp_path) -> None:
         assert len(final_history) == 20
         assert final_history[-1].content == "message 11"
         assert final_history[0].content == "reply: message 1"
+    finally:
+        await engine.dispose()
+
+
+async def test_context_includes_saved_summary_and_old_issue_links(tmp_path) -> None:
+    database_url = f"sqlite+aiosqlite:///{tmp_path / 'memory.db'}"
+    engine, factory, adapter, agent, gateway = await build_gateway(database_url)
+    try:
+        for index in range(12):
+            text = (
+                "Issue #3 地址 https://github.com/org/repo/issues/3"
+                if index == 0
+                else f"message {index}"
+            )
+            assert (
+                await gateway.process({"message_id": f"om-{index}", "text": text})
+            ).status == "processed"
+        async with factory() as session:
+            conversation = await session.scalar(select(Conversation))
+            source = await session.scalar(
+                select(Message).where(Message.external_message_id == "om-0")
+            )
+            assert conversation is not None and source is not None and source.user_id
+            session.add(
+                ConversationSummary(
+                    tenant_id=conversation.tenant_id,
+                    conversation_id=conversation.id,
+                    source_message_id=source.id,
+                    created_by_user_id=source.user_id,
+                    summary="用户正在验收飞书到 GitHub 的闭环。",
+                    decisions=["真实写操作必须调用工具"],
+                    bugs=["链接曾被过滤"],
+                    action_items=[
+                        {
+                            "content": "验证 Issue #3",
+                            "status": "pending",
+                            "owner": None,
+                            "due_date": None,
+                        }
+                    ],
+                    status="confirmed",
+                )
+            )
+            await session.commit()
+
+        assert (
+            await gateway.process({"message_id": "om-12", "text": "继续"})
+        ).status == "processed"
+        final_history = agent.histories[-1]
+        assert final_history[0].role == "system"
+        assert "长期记忆" in final_history[0].content
+        assert "飞书到 GitHub" in final_history[0].content
+        assert "https://github.com/org/repo/issues/3" in final_history[0].content
+        assert final_history[-1].content == "继续"
     finally:
         await engine.dispose()

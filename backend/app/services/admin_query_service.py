@@ -288,6 +288,21 @@ class AdminQueryService:
                     .order_by(AgentRun.id.desc())
                 )
             ).all()
+            operations_by_source: dict[int, ToolOperation] = {}
+            if runs:
+                source_message_ids = [run.source_message_id for run in runs]
+                operations = (
+                    await session.scalars(
+                        select(ToolOperation).where(
+                            ToolOperation.conversation_id == conversation_id,
+                            ToolOperation.source_message_id.in_(source_message_ids),
+                            ToolOperation.tool_name == "github_create_issue",
+                        )
+                    )
+                ).all()
+                operations_by_source = {
+                    operation.source_message_id: operation for operation in operations
+                }
             result: list[dict[str, Any]] = []
             for run in runs:
                 steps = (
@@ -297,6 +312,8 @@ class AdminQueryService:
                         .order_by(AgentStep.step_no.asc(), AgentStep.id.asc())
                     )
                 ).all()
+                operation = operations_by_source.get(run.source_message_id)
+                issue = (operation.result_data or {}) if operation is not None else {}
                 result.append(
                     {
                         "id": run.id,
@@ -305,6 +322,8 @@ class AdminQueryService:
                         "latency_ms": run.latency_ms,
                         "final_answer": run.final_answer,
                         "error": run.error,
+                        "external_id": operation.external_id if operation is not None else None,
+                        "external_url": issue.get("html_url"),
                         "started_at": run.started_at.isoformat(),
                         "completed_at": run.completed_at.isoformat()
                         if run.completed_at

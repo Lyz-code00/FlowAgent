@@ -6,14 +6,16 @@ FlowAgent 是面向软件研发团队的飞书 AI 研发协同工作台。当前
 
 - `POST /api/v1/channels/feishu/events` 支持飞书 URL Verification。
 - 支持 verification token 与可选请求签名校验。
-- 仅处理文本消息；群聊要求 @机器人，私聊可直接触发。
+- 支持文本、图片、语音、Markdown、TXT 和文本型 PDF；群聊要求 @机器人，私聊可直接触发。
 - 飞书事件转换为 `UnifiedMessage`，Agent 不读取渠道原始协议。
 - 数据库唯一约束防止同一个 `message_id` 被重复处理。
 - 通过飞书开放平台获取 tenant access token，并回复原消息。
 - 自动建立 Tenant、User、ChannelAccount、Conversation 和 Message 映射。
-- 默认加载同一会话最近 10 轮上下文。
+- 使用“最近 10 轮原文 + 已保存讨论摘要/待办 + 历史 Issue、URL 与重要约束”的分层记忆。
 - 支持 OpenAI-compatible `/chat/completions` Provider。
 - Agent Loop 最多执行 5 步，并记录 LLM/Tool Step、耗时、状态和最终答案。
+- Agent 最终回复受平台规章约束，不做字符过滤；真实 URL 与 Citation 会原样保留。
+- 最终状态区分 `resolved`、`partial` 和 `blocked`，达到步骤上限不会冒充任务完成。
 - 支持 `github_search_issue`、`github_get_issue` 和 `github_create_issue`。
 - 支持 `github_recent_changes`，按时间合并展示近期 Commit 与 Pull Request。
 - Tool 参数由严格 Pydantic Schema 校验，未知字段和非法值会返回给 Agent 修正。
@@ -50,6 +52,18 @@ uvicorn app.main:app --reload --port 8001
 ```
 
 `.env.example` 默认使用本地 SQLite，便于直接开发。模型接口已按 DeepSeek OpenAI-compatible API 配置为 `https://api.deepseek.com` 和 `deepseek-v4-flash`；填写 `FLOWAGENT_LLM_API_KEY` 后启用真实模型。
+
+图片理解默认使用 `deepseek-v4-flash-vision-exp`。飞书应用还需要开通读取消息资源的权限，图片和附件才能被机器人下载。语音默认由服务器上的 Whisper 离线转写，不发送给新的第三方；首次使用会下载一次 `base` 模型并写入持久缓存：
+
+```env
+FLOWAGENT_LLM_VISION_MODEL=deepseek-v4-flash-vision-exp
+FLOWAGENT_TRANSCRIPTION_BACKEND=local
+FLOWAGENT_TRANSCRIPTION_MODEL=base
+FLOWAGENT_TRANSCRIPTION_DEVICE=cpu
+FLOWAGENT_TRANSCRIPTION_COMPUTE_TYPE=int8
+```
+
+如需改用兼容 `/audio/transcriptions` 的外部服务，可将 backend 改为 `remote`，并配置 `FLOWAGENT_TRANSCRIPTION_BASE_URL`、`FLOWAGENT_TRANSCRIPTION_API_KEY` 和模型名。未配置可用转写服务时，机器人会明确提示，绝不会猜测语音内容。
 
 首次启动前必须修改后台管理 Token：
 
