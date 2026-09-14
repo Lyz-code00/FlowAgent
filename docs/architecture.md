@@ -26,11 +26,13 @@ flowchart TB
     end
 
     subgraph 能力层["⑤ 工具与能力层"]
-        TOOLS["业务工具<br/>knowledge_search · github_×4 · save_conversation_summary · generate_document"]
+        TOOLS["26 个业务工具<br/>知识 · GitHub · Web · Incident · 监控 · 文档"]
         FINAL["submit_final_answer<br/>结构化最终回答"]
         RAG["RAG 检索管道<br/>解析 → 分块 → 向量 → 混合检索"]
         GHS["GitHubService"]
         SUMS["SummaryService"]
+        OBS["ObservabilityService"]
+        INC["Incident · Ownership Service"]
     end
 
     subgraph 支撑层["⑥ 支撑服务层"]
@@ -48,6 +50,8 @@ flowchart TB
         EMB["Embedding API"]
         GH["GitHub API"]
         FO["飞书 Open API"]
+        MON["Prometheus · Loki · Sentry"]
+        WWW["公开网页"]
     end
 
     FEISHU --> ADAPTER --> GW
@@ -58,6 +62,9 @@ flowchart TB
     TOOLS --> RAG
     TOOLS --> GHS --> GH
     TOOLS --> SUMS
+    TOOLS --> OBS --> MON
+    TOOLS --> INC --> DB
+    TOOLS --> WWW
     LOOP --> FINAL
     GW -->|"回复"| ADAPTER --> FO
     GW --> IDENT --> DB
@@ -100,7 +107,7 @@ sequenceDiagram
     loop 1..max_steps
         AL->>LLM: complete(messages, tools)
         AL->>RR: run(tool_call)
-        RR->>GH: search/get/create issue · recent changes
+        RR->>GH: Issue CRUD · 文件/Commit/PR Diff · Release
         RR-->>AL: ToolResponse
     end
     AL->>LLM: submit_final_answer (强制 tool_choice)
@@ -111,7 +118,7 @@ sequenceDiagram
     AD->>FS: 回复
 ```
 
-## 3. 数据模型（16 张表，按域分组）
+## 3. 数据模型（18 张表，按域分组）
 
 | 域 | 表 | 说明 |
 |---|---|---|
@@ -121,7 +128,8 @@ sequenceDiagram
 | 可观测 | `agent_runs`、`agent_steps` | 每次推理一条 run，每个 llm/tool 步一条 step |
 | 安全/幂等 | `tool_operations`、`action_confirmations` | 写操作幂等回放；P0/P1 二次确认码（TTL） |
 | 讨论沉淀 | `conversation_summaries` | 结构化总结：决策/缺陷/待办，可转真实 Issue |
-| 知识库 | `knowledge_bases`、`knowledge_documents`、`document_chunks` | RAG：文档→分块→向量（pgvector/JSON） |
+| 知识库 | `knowledge_bases`、`knowledge_documents`、`document_chunks` | RAG：文件/飞书文档→分块→向量（pgvector/JSON），保留来源 URL |
+| 故障与归属 | `incidents`、`ownership_mappings` | 租户隔离的历史故障证据，以及服务/团队/负责人/GitHub 用户名映射 |
 
 ## 4. 关键事实
 
@@ -131,6 +139,8 @@ sequenceDiagram
 - **多模态**：飞书资源 API 下载图片、语音和文件；图片进入 DeepSeek 视觉模型，语音由本地 Whisper 转写，md/txt/文本 PDF 提取后进入上下文。
 - **文档输出**：`generate_document` 在内存生成企业风格 Word 文件，Agent 响应仅临时携带二进制，飞书适配器上传后用 `file_key` 回复原消息；Trace 不存文件正文。
 - **记忆**：最近 10 轮原文之外，注入已保存摘要/决策/待办，以及历史 Issue、URL 和重要约束。
-- **8 个工具**：`knowledge_search`、`github_search_issue`、`github_get_issue`、`github_recent_changes`、`github_create_issue`（P0/P1 确认 + 幂等回放）、`save_conversation_summary`、`generate_document`、`submit_final_answer`。
+- **工具体系**：26 个业务工具覆盖知识库、飞书文档同步、Web、Incident、只读监控、负责人映射、GitHub 文件与 Issue 生命周期、讨论摘要和 Word 生成；另由 `submit_final_answer` 约束最终状态。
+- **实时监控**：健康地址、Prometheus、Loki、Sentry 均为服务器预配置的只读入口；聊天参数只能提供查询表达式，不能改变目标主机。
+- **GitHub 安全**：创建 P0/P1 与关闭 Issue 需要二次确认；所有写操作有 RBAC 与幂等记录；附件使用公开 HTTPS 引用，不调用非官方二进制上传接口。
 - **RAG**：解析(md/txt/pdf) → 重叠分块 → embedding（OpenAI 兼容 / 开发哈希回退）→ 混合检索（0.65 稠密余弦 + 0.35 BM25）→ `[citation_id]` 引用。
 - **前端**：React 19 + Vite + react-router，8 页面，token 存 sessionStorage，SSE 实时 Trace 流。

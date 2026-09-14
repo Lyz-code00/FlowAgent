@@ -59,6 +59,25 @@ class FeedbackUpdate(BaseModel):
     reason: str | None = Field(default=None, max_length=2000)
 
 
+class OwnershipCreate(BaseModel):
+    tenant_id: int = Field(ge=1)
+    service: str = Field(min_length=1, max_length=255)
+    team: str = Field(default="", max_length=255)
+    display_name: str = Field(default="", max_length=255)
+    feishu_open_id: str = Field(default="", max_length=255)
+    github_username: str = Field(default="", max_length=255)
+    active: bool = True
+
+
+class OwnershipUpdate(BaseModel):
+    service: str = Field(min_length=1, max_length=255)
+    team: str = Field(default="", max_length=255)
+    display_name: str = Field(default="", max_length=255)
+    feishu_open_id: str = Field(default="", max_length=255)
+    github_username: str = Field(default="", max_length=255)
+    active: bool = True
+
+
 def serialize_agent_config(config) -> dict:
     return {
         "name": config.name,
@@ -83,6 +102,57 @@ async def list_users(request: Request) -> list[dict]:
 @router.get("/tenants")
 async def list_tenants(request: Request) -> list[dict]:
     return await request.app.state.admin_query_service.list_tenants()
+
+
+@router.get("/ownership")
+async def list_ownership(
+    request: Request,
+    tenant_key: str | None = Query(default=None, max_length=128),
+) -> list[dict]:
+    return await request.app.state.ownership_service.list_all(tenant_key=tenant_key)
+
+
+@router.post("/ownership")
+async def create_ownership(payload: OwnershipCreate, request: Request) -> dict:
+    try:
+        return await request.app.state.ownership_service.create(**payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=409, detail="该租户已存在相同服务的负责人映射"
+        ) from exc
+
+
+@router.put("/ownership/{mapping_id}")
+async def update_ownership(
+    mapping_id: int, payload: OwnershipUpdate, request: Request
+) -> dict:
+    try:
+        result = await request.app.state.ownership_service.update(
+            mapping_id, **payload.model_dump()
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=409, detail="负责人映射与现有服务冲突"
+        ) from exc
+    if result is None:
+        raise HTTPException(status_code=404, detail="ownership mapping not found")
+    return result
+
+
+@router.delete("/ownership/{mapping_id}")
+async def delete_ownership(mapping_id: int, request: Request) -> dict:
+    if not await request.app.state.ownership_service.delete(mapping_id):
+        raise HTTPException(status_code=404, detail="ownership mapping not found")
+    return {"deleted": True}
+
+
+@router.get("/incidents")
+async def list_incidents(
+    request: Request, limit: int = Query(default=100, ge=1, le=500)
+) -> list[dict]:
+    return await request.app.state.incident_service.list_all(limit=limit)
 
 
 @router.put("/users/{user_id}/role")
@@ -127,6 +197,7 @@ async def runtime_config(request: Request) -> dict:
         "feishu": {
             "configured": bool(settings.feishu_app_id and settings.feishu_app_secret)
         },
+        "monitoring": request.app.state.observability_service.capabilities(),
     }
 
 

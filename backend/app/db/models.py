@@ -287,6 +287,7 @@ class KnowledgeDocument(Base):
     )
     title: Mapped[str] = mapped_column(String(512))
     source_name: Mapped[str] = mapped_column(String(512))
+    source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     content_type: Mapped[str] = mapped_column(String(128))
     status: Mapped[str] = mapped_column(String(32), default="processing", index=True)
     chunk_count: Mapped[int] = mapped_column(Integer, default=0)
@@ -322,3 +323,47 @@ class DocumentChunk(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class Incident(TimestampMixin, Base):
+    __tablename__ = "incidents"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "incident_key", name="uq_incident_tenant_key"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), index=True
+    )
+    incident_key: Mapped[str] = mapped_column(String(32), index=True)
+    title: Mapped[str] = mapped_column(String(512))
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    severity: Mapped[str] = mapped_column(String(16), index=True)
+    service: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    occurred_at: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    summary: Mapped[str] = mapped_column(Text)
+    root_cause: Mapped[str | None] = mapped_column(Text, nullable=True)
+    evidence: Mapped[list[str]] = mapped_column(JSON, default=list)
+    source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+
+
+class OwnershipMapping(TimestampMixin, Base):
+    __tablename__ = "ownership_mappings"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "service", name="uq_owner_tenant_service"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[int] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), index=True
+    )
+    service: Mapped[str] = mapped_column(String(255), index=True)
+    team: Mapped[str] = mapped_column(String(255), default="", index=True)
+    display_name: Mapped[str] = mapped_column(String(255), default="")
+    feishu_open_id: Mapped[str] = mapped_column(String(255), default="")
+    github_username: Mapped[str] = mapped_column(String(255), default="")
+    active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)

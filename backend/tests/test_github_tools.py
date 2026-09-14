@@ -1,3 +1,4 @@
+import base64
 import json
 
 import httpx
@@ -187,6 +188,158 @@ async def test_github_recent_changes_merges_commits_and_pull_requests() -> None:
     assert [item.kind for item in changes] == ["pull_request", "commit"]
     assert changes[0].identifier == "#42"
     assert changes[1].title == "fix: login timeout"
+
+
+async def test_github_reads_repository_file_and_commit_patch() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if "/contents/" in request.url.path:
+            encoded = base64.encodebytes("支付回调处理器".encode()).decode()
+            return httpx.Response(
+                200,
+                json={
+                    "type": "file",
+                    "path": "backend/callback.py",
+                    "sha": "blob-sha",
+                    "size": 21,
+                    "encoding": "base64",
+                    "content": encoded,
+                    "html_url": "https://github.test/blob/main/backend/callback.py",
+                },
+            )
+        assert "/commits/abcdef1" in request.url.path
+        return httpx.Response(
+            200,
+            json={
+                "sha": "abcdef123456",
+                "html_url": "https://github.test/commit/abcdef123456",
+                "author": {"login": "alice"},
+                "commit": {
+                    "message": "fix callback state",
+                    "author": {"name": "Alice", "date": "2026-09-13T08:00:00Z"},
+                },
+                "stats": {"additions": 2, "deletions": 1, "total": 3},
+                "files": [
+                    {
+                        "filename": "backend/callback.py",
+                        "status": "modified",
+                        "additions": 2,
+                        "deletions": 1,
+                        "changes": 3,
+                        "patch": "@@ -1 +1 @@\n-old\n+new",
+                        "blob_url": "https://github.test/blob/abcdef1/backend/callback.py",
+                        "raw_url": "https://github.test/raw/abcdef1/backend/callback.py",
+                    }
+                ],
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        service = GitHubService(
+            token="token", owner="acme", repo="repo", client=client
+        )
+        file = await service.get_file(path="backend/callback.py", ref="main")
+        commit = await service.get_commit(ref="abcdef1")
+
+    assert file.content == "支付回调处理器"
+    assert file.ref == "main"
+    assert commit.total_changes == 3
+    assert commit.files[0].filename == "backend/callback.py"
+    assert "+new" in (commit.files[0].patch or "")
+
+
+async def test_github_reads_pr_compare_and_releases() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/pulls/7"):
+            return httpx.Response(
+                200,
+                json={
+                    "number": 7,
+                    "title": "Fix payment callback",
+                    "state": "open",
+                    "merged": False,
+                    "user": {"login": "bob"},
+                    "base": {"ref": "main"},
+                    "head": {"ref": "fix/callback"},
+                    "body": "Fixes order status",
+                    "html_url": "https://github.test/pull/7",
+                    "changed_files": 1,
+                },
+            )
+        if path.endswith("/pulls/7/files"):
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "filename": "callback.py",
+                        "status": "modified",
+                        "additions": 1,
+                        "deletions": 0,
+                        "changes": 1,
+                        "patch": "@@ -1 +1 @@\n+consume(event)",
+                        "blob_url": "https://github.test/blob/pr/callback.py",
+                    }
+                ],
+            )
+        if "/compare/" in path:
+            return httpx.Response(
+                200,
+                json={
+                    "status": "ahead",
+                    "ahead_by": 2,
+                    "behind_by": 0,
+                    "total_commits": 2,
+                    "html_url": "https://github.test/compare/main...release",
+                    "files": [
+                        {
+                            "filename": "deploy.yml",
+                            "status": "added",
+                            "changes": 4,
+                            "patch": "@@ -0,0 +1,4 @@",
+                        }
+                    ],
+                },
+            )
+        assert path.endswith("/releases")
+        return httpx.Response(
+            200,
+            json=[
+                {
+                    "tag_name": "v1.2.0",
+                    "name": "FlowAgent 1.2",
+                    "html_url": "https://github.test/releases/v1.2.0",
+                    "author": {"login": "carol"},
+                    "target_commitish": "main",
+                    "draft": False,
+                    "prerelease": False,
+                    "published_at": "2026-09-13T10:00:00Z",
+                    "body": "Release notes",
+                }
+            ],
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        service = GitHubService(
+            token="token", owner="acme", repo="repo", client=client
+        )
+        pull = await service.get_pull_request_changes(pull_number=7)
+        comparison = await service.compare(base="main", head="release")
+        releases = await service.list_releases(limit=5)
+
+    assert pull.head_ref == "fix/callback"
+    assert pull.files[0].patch is not None
+    assert comparison.ahead_by == 2
+    assert comparison.files[0].filename == "deploy.yml"
+    assert releases[0].tag_name == "v1.2.0"
+
+
+async def test_github_rejects_unsafe_repository_file_path() -> None:
+    service = GitHubService(token="token", owner="acme", repo="repo")
+    try:
+        await service.get_file(path="../.env")
+        raise AssertionError("expected invalid path rejection")
+    except GitHubError as exc:
+        assert "path" in str(exc)
 
 
 async def test_search_cannot_escape_configured_repository() -> None:

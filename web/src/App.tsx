@@ -7,6 +7,7 @@ import Conversations from "./pages/Conversations";
 import Dashboard from "./pages/Dashboard";
 import Feedback from "./pages/Feedback";
 import Knowledge from "./pages/Knowledge";
+import Incidents from "./pages/Incidents";
 import Login from "./pages/Login";
 import Summaries from "./pages/Summaries";
 import Users from "./pages/Users";
@@ -26,6 +27,7 @@ export default function App() {
         <Route path="/" element={<Dashboard />} />
         <Route path="/conversations" element={<Conversations />} />
         <Route path="/knowledge" element={<Knowledge />} />
+        <Route path="/incidents" element={<Incidents />} />
         <Route path="/users" element={<Users />} />
         <Route path="/summaries" element={<Summaries />} />
         <Route path="/feedback" element={<Feedback />} />

@@ -21,10 +21,14 @@ from app.services.agent_config_service import AgentConfigService
 from app.services.admin_query_service import AdminQueryService
 from app.services.github_service import GitHubService
 from app.services.feedback_service import FeedbackService
+from app.services.feishu_document_service import FeishuDocumentService
 from app.services.github_config_service import GitHubConfigService, SecretCipher
 from app.services.identity_service import IdentityService
+from app.services.incident_service import IncidentService
 from app.services.knowledge_service import KnowledgeService
 from app.services.message_gateway import MessageGateway
+from app.services.observability_service import ObservabilityService
+from app.services.ownership_service import OwnershipService
 from app.services.permission_service import PermissionService
 from app.services.summary_service import SummaryService
 from app.services.tool_operation_service import ToolOperationService
@@ -34,16 +38,36 @@ from app.services.transcription_service import (
     OpenAICompatibleTranscriptionService,
 )
 from app.services.document_service import DocumentService
+from app.services.web_service import WebService
 from app.tools.document import GenerateDocumentTool
+from app.tools.feishu_document import FeishuImportDocumentTool
 from app.tools.github import (
+    GitHubAddIssueAttachmentsTool,
+    GitHubAssignIssueTool,
+    GitHubCloseIssueTool,
+    GitHubCompareTool,
     GitHubCreateIssueTool,
+    GitHubGetCommitTool,
+    GitHubGetFileTool,
     GitHubGetIssueTool,
+    GitHubGetPullRequestChangesTool,
+    GitHubListReleasesTool,
     GitHubRecentChangesTool,
     GitHubSearchIssueTool,
+    GitHubUpdateIssueTool,
 )
 from app.tools.knowledge import KnowledgeSearchTool
+from app.tools.incident import IncidentSaveTool, IncidentSearchTool
+from app.tools.observability import (
+    MonitorErrorTool,
+    MonitorHealthTool,
+    MonitorLogTool,
+    MonitorMetricTool,
+)
+from app.tools.ownership import OwnerLookupTool
 from app.tools.runner import ToolRunner
 from app.tools.summary import SaveConversationSummaryTool
+from app.tools.web import OpenUrlTool, WebSearchTool
 
 
 @asynccontextmanager
@@ -99,9 +123,28 @@ async def lifespan(app: FastAPI):
         max_file_bytes=settings.knowledge_max_file_bytes,
         min_score=settings.knowledge_min_score,
     )
+    feishu_document_service = FeishuDocumentService(
+        app_id=settings.feishu_app_id,
+        app_secret=settings.feishu_app_secret,
+        knowledge_service=knowledge_service,
+    )
+    incident_service = IncidentService(session_factory)
+    observability_service = ObservabilityService(
+        health_urls=settings.monitoring_health_urls,
+        prometheus_url=settings.monitoring_prometheus_url,
+        prometheus_token=settings.monitoring_prometheus_token,
+        loki_url=settings.monitoring_loki_url,
+        loki_token=settings.monitoring_loki_token,
+        sentry_url=settings.monitoring_sentry_url,
+        sentry_token=settings.monitoring_sentry_token,
+        sentry_org=settings.monitoring_sentry_org,
+        sentry_project=settings.monitoring_sentry_project,
+    )
+    ownership_service = OwnershipService(session_factory)
     operation_service = ToolOperationService(session_factory)
     confirmation_service = ConfirmationService(session_factory)
     summary_service = SummaryService(session_factory)
+    web_service = WebService()
     github_config_service = GitHubConfigService(
         session_factory,
         SecretCipher(settings.config_encryption_key or settings.admin_api_token),
@@ -143,12 +186,33 @@ async def lifespan(app: FastAPI):
         )
         tools = [
             GenerateDocumentTool(DocumentService()),
+            FeishuImportDocumentTool(feishu_document_service),
+            WebSearchTool(web_service),
+            OpenUrlTool(web_service),
+            IncidentSearchTool(incident_service),
+            IncidentSaveTool(incident_service),
+            MonitorHealthTool(observability_service),
+            MonitorMetricTool(observability_service),
+            MonitorLogTool(observability_service),
+            MonitorErrorTool(observability_service),
+            OwnerLookupTool(ownership_service),
             KnowledgeSearchTool(
                 knowledge_service, default_top_k=settings.knowledge_top_k
             ),
             GitHubSearchIssueTool(github_service),
             GitHubGetIssueTool(github_service),
             GitHubRecentChangesTool(github_service),
+            GitHubGetCommitTool(github_service),
+            GitHubGetFileTool(github_service),
+            GitHubGetPullRequestChangesTool(github_service),
+            GitHubCompareTool(github_service),
+            GitHubListReleasesTool(github_service),
+            GitHubUpdateIssueTool(github_service, operation_service),
+            GitHubAssignIssueTool(github_service, operation_service),
+            GitHubAddIssueAttachmentsTool(github_service, operation_service),
+            GitHubCloseIssueTool(
+                github_service, operation_service, confirmation_service
+            ),
             GitHubCreateIssueTool(
                 github_service,
                 operation_service,
@@ -184,6 +248,10 @@ async def lifespan(app: FastAPI):
     app.state.agent_config_service = agent_config_service
     app.state.github_config_service = github_config_service
     app.state.knowledge_service = knowledge_service
+    app.state.feishu_document_service = feishu_document_service
+    app.state.incident_service = incident_service
+    app.state.observability_service = observability_service
+    app.state.ownership_service = ownership_service
     async def resolve_github_service() -> GitHubService:
         config = await github_config_service.get()
         return GitHubService(

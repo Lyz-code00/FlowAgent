@@ -1,8 +1,8 @@
-import { RefreshCw, ShieldCheck, UserRoundCog, UsersRound } from "lucide-react";
+import { Plus, RefreshCw, Save, ShieldCheck, Trash2, UserRoundCog, UsersRound } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { EmptyState, ErrorBanner, LoadingBlock, PageHeader, StatusBadge } from "../components/Common";
-import type { ManagedUser, RuntimeConfig, UserRole } from "../types";
+import type { ManagedUser, OwnershipMapping, RuntimeConfig, TenantSummary, UserRole } from "../types";
 
 const roleLabels: Record<UserRole, string> = {
   member: "普通成员",
@@ -27,15 +27,24 @@ export default function Users() {
   const [savingId, setSavingId] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [memberCanCreate, setMemberCanCreate] = useState(false);
+  const [owners, setOwners] = useState<OwnershipMapping[]>([]);
+  const [tenants, setTenants] = useState<TenantSummary[]>([]);
+  const [newOwner, setNewOwner] = useState({ tenant_id: 0, service: "", team: "", display_name: "", feishu_open_id: "", github_username: "", active: true });
 
   function load() {
     setLoading(true);
     setError("");
     Promise.all([
       api<ManagedUser[]>("/api/v1/users"),
-      api<RuntimeConfig>("/api/v1/config/runtime")
+      api<RuntimeConfig>("/api/v1/config/runtime"),
+      api<OwnershipMapping[]>("/api/v1/ownership"),
+      api<TenantSummary[]>("/api/v1/tenants")
     ])
-      .then(([nextUsers, runtime]) => { setUsers(nextUsers); setMemberCanCreate(runtime.github.member_can_create_issue); })
+      .then(([nextUsers, runtime, nextOwners, nextTenants]) => {
+        setUsers(nextUsers); setMemberCanCreate(runtime.github.member_can_create_issue);
+        setOwners(nextOwners); setTenants(nextTenants);
+        setNewOwner((current) => ({ ...current, tenant_id: current.tenant_id || nextTenants[0]?.id || 0 }));
+      })
       .catch((reason) => setError(reason.message))
       .finally(() => setLoading(false));
   }
@@ -64,6 +73,40 @@ export default function Users() {
     }
   }
 
+  async function createOwner() {
+    if (!newOwner.tenant_id || !newOwner.service.trim()) return;
+    setError("");
+    try {
+      const created = await api<OwnershipMapping>("/api/v1/ownership", { method: "POST", body: JSON.stringify(newOwner) });
+      setOwners((items) => [...items, created]);
+      setNewOwner((current) => ({ ...current, service: "", team: "", display_name: "", feishu_open_id: "", github_username: "" }));
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "负责人映射创建失败"); }
+  }
+
+  async function saveOwner(owner: OwnershipMapping) {
+    setSavingId(owner.id); setError("");
+    try {
+      const updated = await api<OwnershipMapping>(`/api/v1/ownership/${owner.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ service: owner.service, team: owner.team, display_name: owner.display_name, feishu_open_id: owner.feishu_open_id, github_username: owner.github_username, active: owner.active })
+      });
+      setOwners((items) => items.map((item) => item.id === updated.id ? updated : item));
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "负责人映射保存失败"); }
+    finally { setSavingId(null); }
+  }
+
+  async function deleteOwner(owner: OwnershipMapping) {
+    if (!window.confirm(`确认删除 ${owner.service} 的负责人映射吗？`)) return;
+    try {
+      await api(`/api/v1/ownership/${owner.id}`, { method: "DELETE" });
+      setOwners((items) => items.filter((item) => item.id !== owner.id));
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "负责人映射删除失败"); }
+  }
+
+  function patchOwner(id: number, values: Partial<OwnershipMapping>) {
+    setOwners((items) => items.map((item) => item.id === id ? { ...item, ...values } : item));
+  }
+
   return (
     <>
       <PageHeader
@@ -83,8 +126,32 @@ export default function Users() {
           <tr><td><strong>knowledge_search</strong><span className="cell-sub">检索内部知识</span></td><td>允许</td><td>允许</td><td>允许</td></tr>
           <tr><td><strong>github_search / get / recent</strong><span className="cell-sub">读取 Issue、Commit 与 PR</span></td><td>允许</td><td>允许</td><td>允许</td></tr>
           <tr><td><strong>github_create_issue</strong><span className="cell-sub">创建真实 Issue；P0/P1 另需二次确认</span></td><td>{memberCanCreate ? "按配置允许" : "拒绝"}</td><td>允许</td><td>允许</td></tr>
+          <tr><td><strong>incident_save</strong><span className="cell-sub">显式沉淀结构化历史故障</span></td><td>允许</td><td>允许</td><td>允许</td></tr>
+          <tr><td><strong>feishu_import_document</strong><span className="cell-sub">同步内部飞书文档</span></td><td>拒绝</td><td>允许</td><td>允许</td></tr>
           <tr><td><strong>管理后台配置</strong><span className="cell-sub">Agent、GitHub、知识库与角色</span></td><td>拒绝</td><td>拒绝</td><td>允许</td></tr>
         </tbody></table></div>
+      </section>
+      <section className="panel ownership-panel">
+        <div className="panel__header"><div><h2>服务负责人映射</h2><p>Agent 会用这里的 GitHub 用户名处理“分配给后端负责人”等指令</p></div><UserRoundCog size={20} /></div>
+        <div className="ownership-create">
+          <select value={newOwner.tenant_id} onChange={(event) => setNewOwner({ ...newOwner, tenant_id: Number(event.target.value) })}>{tenants.map((tenant) => <option value={tenant.id} key={tenant.id}>{tenant.name}</option>)}</select>
+          <input placeholder="服务/模块（必填）" value={newOwner.service} onChange={(event) => setNewOwner({ ...newOwner, service: event.target.value })} />
+          <input placeholder="团队" value={newOwner.team} onChange={(event) => setNewOwner({ ...newOwner, team: event.target.value })} />
+          <input placeholder="负责人姓名" value={newOwner.display_name} onChange={(event) => setNewOwner({ ...newOwner, display_name: event.target.value })} />
+          <input placeholder="飞书 Open ID" value={newOwner.feishu_open_id} onChange={(event) => setNewOwner({ ...newOwner, feishu_open_id: event.target.value })} />
+          <input placeholder="GitHub 用户名" value={newOwner.github_username} onChange={(event) => setNewOwner({ ...newOwner, github_username: event.target.value })} />
+          <button className="primary-button compact" onClick={createOwner} disabled={!newOwner.tenant_id || !newOwner.service.trim()}><Plus size={16} />新增</button>
+        </div>
+        {!!owners.length && <div className="table-scroll"><table><thead><tr><th>租户</th><th>服务/模块</th><th>团队</th><th>负责人</th><th>飞书 Open ID</th><th>GitHub 用户名</th><th>启用</th><th className="align-right">操作</th></tr></thead><tbody>{owners.map((owner) => <tr key={owner.id}>
+          <td>{owner.tenant_key}</td>
+          <td><input value={owner.service} onChange={(event) => patchOwner(owner.id, { service: event.target.value })} /></td>
+          <td><input value={owner.team} onChange={(event) => patchOwner(owner.id, { team: event.target.value })} /></td>
+          <td><input value={owner.display_name} onChange={(event) => patchOwner(owner.id, { display_name: event.target.value })} /></td>
+          <td><input value={owner.feishu_open_id} onChange={(event) => patchOwner(owner.id, { feishu_open_id: event.target.value })} /></td>
+          <td><input value={owner.github_username} onChange={(event) => patchOwner(owner.id, { github_username: event.target.value })} /></td>
+          <td><input type="checkbox" checked={owner.active} onChange={(event) => patchOwner(owner.id, { active: event.target.checked })} /></td>
+          <td className="align-right"><button className="icon-button" title="保存" onClick={() => saveOwner(owner)} disabled={savingId === owner.id}><Save size={16} /></button><button className="icon-button icon-button--danger" title="删除" onClick={() => deleteOwner(owner)}><Trash2 size={16} /></button></td>
+        </tr>)}</tbody></table></div>}
       </section>
       <section className="panel table-panel">
         {loading ? <LoadingBlock /> : !users.length ? (

@@ -25,6 +25,7 @@ class DocumentInfo:
     source_name: str
     status: str
     chunk_count: int
+    source_url: str | None = None
     error: str | None = None
 
 
@@ -37,6 +38,7 @@ class SearchHit:
     source_locator: str
     content: str
     score: float
+    source_url: str | None = None
     dense_score: float = 0
     lexical_score: float = 0
 
@@ -67,6 +69,7 @@ class KnowledgeService:
         data: bytes,
         content_type: str = "application/octet-stream",
         title: str | None = None,
+        source_url: str | None = None,
     ) -> DocumentInfo:
         if not data:
             raise DocumentParseError("document is empty")
@@ -78,6 +81,7 @@ class KnowledgeService:
             title=(title or Path(safe_name).stem).strip() or safe_name,
             source_name=safe_name,
             content_type=content_type,
+            source_url=source_url,
         )
         try:
             sections = parse_document(safe_name, data)
@@ -174,6 +178,7 @@ class KnowledgeService:
                 document_id=document.id,
                 title=document.title,
                 source_name=document.source_name,
+                source_url=document.source_url,
                 source_locator=chunk.source_locator,
                 content=chunk.content,
                 score=round(score, 6),
@@ -262,6 +267,50 @@ class KnowledgeService:
             await session.commit()
             return bool(result.rowcount)
 
+    async def ingest_for_tenant_id(
+        self,
+        *,
+        tenant_id: int,
+        filename: str,
+        data: bytes,
+        content_type: str = "text/plain",
+        title: str | None = None,
+        source_url: str | None = None,
+    ) -> DocumentInfo:
+        async with self.session_factory() as session:
+            tenant_key = await session.scalar(
+                select(Tenant.external_key).where(Tenant.id == tenant_id)
+            )
+        if tenant_key is None:
+            raise ValueError("tenant not found")
+        return await self.ingest(
+            tenant_key=tenant_key,
+            filename=filename,
+            data=data,
+            content_type=content_type,
+            title=title,
+            source_url=source_url,
+        )
+
+    async def replace_source_versions(
+        self, *, tenant_id: int, source_url: str, keep_document_id: int
+    ) -> int:
+        """Delete older copies of a successfully re-imported source document."""
+        async with self.session_factory() as session:
+            result = await session.execute(
+                delete(KnowledgeDocument).where(
+                    KnowledgeDocument.source_url == source_url,
+                    KnowledgeDocument.id != keep_document_id,
+                    KnowledgeDocument.knowledge_base_id.in_(
+                        select(KnowledgeBase.id).where(
+                            KnowledgeBase.tenant_id == tenant_id
+                        )
+                    ),
+                )
+            )
+            await session.commit()
+            return int(result.rowcount or 0)
+
     async def _create_processing_document(
         self,
         *,
@@ -269,6 +318,7 @@ class KnowledgeService:
         title: str,
         source_name: str,
         content_type: str,
+        source_url: str | None,
     ) -> int:
         async with self.session_factory() as session:
             tenant = await session.scalar(
@@ -302,6 +352,7 @@ class KnowledgeService:
                 knowledge_base_id=knowledge_base.id,
                 title=title,
                 source_name=source_name,
+                source_url=source_url,
                 content_type=content_type,
                 status="processing",
                 chunk_count=0,
@@ -316,6 +367,7 @@ class KnowledgeService:
             id=document.id,
             title=document.title,
             source_name=document.source_name,
+            source_url=document.source_url,
             status=document.status,
             chunk_count=document.chunk_count,
             error=document.error,

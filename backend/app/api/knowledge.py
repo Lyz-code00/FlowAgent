@@ -10,6 +10,7 @@ from fastapi import (
     UploadFile,
     status,
 )
+from pydantic import BaseModel, Field, HttpUrl
 
 from app.core.security import require_admin
 from app.rag.parser import DocumentParseError
@@ -19,6 +20,12 @@ router = APIRouter(
     tags=["knowledge"],
     dependencies=[Depends(require_admin)],
 )
+
+
+class FeishuDocumentImportRequest(BaseModel):
+    url: HttpUrl
+    tenant_id: int = Field(ge=1)
+    title: str | None = Field(default=None, max_length=512)
 
 
 @router.post("/documents", status_code=status.HTTP_201_CREATED)
@@ -67,3 +74,23 @@ async def delete_document(
     )
     if not deleted:
         raise HTTPException(status_code=404, detail="document not found")
+
+
+@router.post("/feishu/import", status_code=status.HTTP_201_CREATED)
+async def import_feishu_document(
+    payload: FeishuDocumentImportRequest, request: Request
+) -> dict:
+    try:
+        imported = await request.app.state.feishu_document_service.import_url(
+            tenant_id=payload.tenant_id,
+            url=str(payload.url),
+            title=payload.title,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {
+        "document": asdict(imported.document),
+        "source_url": imported.source_url,
+        "document_token": imported.document_token,
+        "replaced_versions": imported.replaced_versions,
+    }

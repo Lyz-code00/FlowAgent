@@ -7,6 +7,7 @@ import {
   MessagesSquare,
   ClipboardList,
   MessageCircleWarning,
+  Siren,
   Settings,
   ShieldCheck,
   UserRoundCog
@@ -18,6 +19,7 @@ const nav = [
   { to: "/", label: "运营概览", icon: Gauge },
   { to: "/conversations", label: "会话与 Trace", icon: MessagesSquare },
   { to: "/knowledge", label: "知识库", icon: BookOpen },
+  { to: "/incidents", label: "Incident 故障库", icon: Siren },
   { to: "/users", label: "用户与权限", icon: UserRoundCog },
   { to: "/summaries", label: "讨论沉淀", icon: ClipboardList },
   { to: "/feedback", label: "反馈与 Bad Case", icon: MessageCircleWarning },
@@ -28,6 +30,7 @@ const titles: Record<string, string> = {
   "/": "运营概览",
   "/conversations": "会话与 Trace",
   "/knowledge": "知识库",
+  "/incidents": "Incident 故障库",
   "/users": "用户与权限",
   "/summaries": "讨论沉淀",
   "/feedback": "反馈与 Bad Case",

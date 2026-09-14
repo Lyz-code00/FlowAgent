@@ -74,6 +74,7 @@ export interface KnowledgeDocument {
   id: number;
   title: string;
   source_name: string;
+  source_url: string | null;
   status: string;
   chunk_count: number;
   error: string | null;
@@ -97,6 +98,12 @@ export interface RuntimeConfig {
     default_top_k: number;
   };
   feishu: { configured: boolean };
+  monitoring: {
+    health_services: string[];
+    prometheus: boolean;
+    loki: boolean;
+    sentry: boolean;
+  };
 }
 
 export interface AgentConfig {
@@ -166,4 +173,34 @@ export interface TenantSummary {
   user_count: number;
   conversation_count: number;
   document_count: number;
+}
+
+export interface OwnershipMapping {
+  id: number;
+  tenant_id: number;
+  tenant_key: string;
+  service: string;
+  team: string;
+  display_name: string;
+  feishu_open_id: string;
+  github_username: string;
+  active: boolean;
+}
+
+export interface IncidentRecord {
+  id: number;
+  incident_key: string;
+  title: string;
+  status: string;
+  severity: string;
+  service: string | null;
+  error_code: string | null;
+  occurred_at: string | null;
+  summary: string;
+  root_cause: string | null;
+  evidence: string[];
+  source_url: string | null;
+  created_by_user_id: number;
+  created_at: string;
+  updated_at: string;
 }

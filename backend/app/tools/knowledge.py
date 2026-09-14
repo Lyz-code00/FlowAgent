@@ -36,6 +36,7 @@ class KnowledgeSearchTool(Tool):
                 "citation_id": hit.citation_id,
                 "title": hit.title,
                 "source": hit.source_name,
+                "source_url": hit.source_url,
                 "locator": hit.source_locator,
                 "content": hit.content,
                 "score": hit.score,

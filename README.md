@@ -17,8 +17,8 @@ FlowAgent 是面向软件研发团队的飞书 AI 研发协同工作台。当前
 - Agent Loop 最多执行 5 步，并记录 LLM/Tool Step、耗时、状态和最终答案。
 - Agent 最终回复受平台规章约束，不做字符过滤；真实 URL 与 Citation 会原样保留。
 - 最终状态区分 `resolved`、`partial` 和 `blocked`，达到步骤上限不会冒充任务完成。
-- 支持 `github_search_issue`、`github_get_issue` 和 `github_create_issue`。
-- 支持 `github_recent_changes`，按时间合并展示近期 Commit 与 Pull Request。
+- GitHub 不仅支持 Issue 查询/创建，还可读取文件、Commit/PR Diff、版本比较和 Release，代码结论基于真实文件或 patch。
+- 支持更新 Issue、重新指派、添加 HTTPS 附件引用；关闭 Issue 必须经过一次性确认码二次确认。
 - Tool 参数由严格 Pydantic Schema 校验，未知字段和非法值会返回给 Agent 修正。
 - GitHub 写操作执行服务端 RBAC；默认只有 `lead` 和 `admin` 可以创建 Issue。
 - 创建 Issue 使用数据库 `operation_id` 幂等，同一来源消息不会重复创建。
@@ -30,8 +30,13 @@ FlowAgent 是面向软件研发团队的飞书 AI 研发协同工作台。当前
 - 文档按自然边界重叠分块，并通过可配置的 Embedding Provider 建立索引。
 - PostgreSQL 使用 pgvector 保存向量；SQLite 使用 JSON 便于本地开发和测试。
 - `knowledge_search` 严格按当前 Tenant 检索并返回带编号的 Citation 证据。
+- 支持从飞书新版 docx/Wiki 链接同步正文，保留原文 URL；重复同步成功后自动移除旧索引版本。
 - 知识检索融合 Dense Embedding 与 BM25，对中文短语、错误码和技术标识符进行混合排序。
 - 未检索到可靠证据时明确返回空召回，不伪造引用。
+- 支持独立、租户隔离的 Incident 保存与检索，记录服务、错误码、严重级别、证据和 Root Cause。
+- 支持 Web Search/Open URL，外部网页作为不可信数据处理并返回 `[W数字]` Citation 与原始链接。
+- 支持只读健康检查、Prometheus 指标/MQ lag、Loki 日志和 Sentry Issue 查询；未配置时明确返回未知。
+- 支持“服务/模块 → 团队 → 飞书负责人 → GitHub 用户名”映射，角色式指派先查映射、绝不猜用户名。
 - 未配置 LLM Key 时使用明确标记的本地开发响应，不会伪装成真实模型结果。
 - 提供蓝白企业风格的 React 管理后台，覆盖运行看板、会话、实时 Agent Trace、知识库、讨论沉淀、用户权限、反馈与运行配置。
 - 讨论摘要支持编辑、确认，并将待办幂等转换为真实 GitHub Issue。
@@ -107,8 +112,26 @@ curl -X POST http://localhost:8001/api/v1/knowledge/documents \
 
 - `GET /api/v1/knowledge/documents`
 - `DELETE /api/v1/knowledge/documents/{document_id}`
+- `POST /api/v1/knowledge/feishu/import`
 
 这些接口与管理查询接口都要求 `X-FlowAgent-Admin-Token` 请求头。公网部署时还应由反向代理启用 HTTPS，并把 Token 作为部署密钥管理。
+
+同步飞书文档前，需要在飞书开放平台为应用开通文档与 Wiki 只读权限，并确保机器人应用可以访问目标文档。管理后台“知识库”页面粘贴 docx/Wiki 链接即可手动同步。
+
+只读监控集成按需配置；URL 与令牌仅由服务器环境变量提供，聊天用户不能指定任意监控地址：
+
+```env
+FLOWAGENT_MONITORING_HEALTH_URLS={"flowagent":"http://backend:8000/health"}
+FLOWAGENT_MONITORING_PROMETHEUS_URL=https://prometheus.example.com
+FLOWAGENT_MONITORING_PROMETHEUS_TOKEN=
+FLOWAGENT_MONITORING_LOKI_URL=https://loki.example.com
+FLOWAGENT_MONITORING_LOKI_TOKEN=
+FLOWAGENT_MONITORING_SENTRY_TOKEN=
+FLOWAGENT_MONITORING_SENTRY_ORG=
+FLOWAGENT_MONITORING_SENTRY_PROJECT=
+```
+
+服务负责人映射在管理后台“用户与权限”页面维护。普通成员可显式沉淀 Incident；飞书文档同步仅允许 `lead` / `admin`。
 
 前端本地开发：
 
@@ -185,4 +208,4 @@ web/src/
 
 ## 下一里程碑
 
-v0.1 PRD 核心闭环已完成。下一阶段可接入组织级单点登录（OIDC/SSO）、钉钉/企业微信 Channel Adapter、Sentry/Prometheus 监控工具，以及基于 Bad Case 的离线评估与 Rerank。
+PRD 四个研发协同场景的产品链路已覆盖。后续增强项包括组织级单点登录（OIDC/SSO）、钉钉/企业微信 Channel Adapter、面向二进制 Issue 附件的对象存储，以及基于 Bad Case 的离线评估与 Rerank。

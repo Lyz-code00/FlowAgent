@@ -11,6 +11,10 @@ class PermissionService:
             raise PermissionDeniedError(f"unknown role '{role}'")
         if permission == "read":
             return
+        if permission == "incident_write":
+            return
+        if permission == "knowledge_write" and role in {"lead", "admin"}:
+            return
         if permission == "github_issue_write" and (
             role in {"lead", "admin"}
             or (role == "member" and self.member_can_create_issue)

@@ -52,6 +52,15 @@ class Settings(BaseSettings):
     feishu_internal_callback_url: str = (
         "http://127.0.0.1:8001/api/v1/channels/feishu/events"
     )
+    monitoring_health_urls: dict[str, str] = Field(default_factory=dict)
+    monitoring_prometheus_url: str = ""
+    monitoring_prometheus_token: str = ""
+    monitoring_loki_url: str = ""
+    monitoring_loki_token: str = ""
+    monitoring_sentry_url: str = "https://sentry.io/api/0"
+    monitoring_sentry_token: str = ""
+    monitoring_sentry_org: str = ""
+    monitoring_sentry_project: str = ""
 
     model_config = SettingsConfigDict(
         env_file=("../.env", ".env"),
