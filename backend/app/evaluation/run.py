@@ -2,13 +2,22 @@ from __future__ import annotations
 
 import asyncio
 import json
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
+from sqlalchemy import func, select
+
+from app.db.models import InboundEventAudit
+from app.db.session import create_engine, create_session_factory, create_tables
 from app.rag.embedding import DevelopmentHashEmbeddingProvider, cosine_similarity
+from app.schemas.message import UnifiedMessage
+from app.services.confirmation_service import ConfirmationService
 from app.services.conversation_service import ConversationService
+from app.services.identity_service import IdentityService
 from app.services.knowledge_service import KnowledgeService
+from app.tools.context import ToolContext
 
 
 CORPUS = [
@@ -48,6 +57,131 @@ CASES = [
 ]
 
 
+def _offline_context_cases() -> list[dict]:
+    details: list[dict] = []
+    for index in range(10):
+        issue_no = 201 + index
+        url = f"https://github.com/Lyz-code00/FlowAgent/issues/{issue_no}"
+        memory = ConversationService._build_long_term_memory(
+            None,
+            [SimpleNamespace(role="user", content=f"请记住 Issue #{issue_no}，链接 {url}")],
+        )
+        details.append(
+            {
+                "scenario": f"历史 Issue 与 URL #{issue_no}",
+                "passed": f"#{issue_no}" in memory and url in memory,
+            }
+        )
+    for index in range(10):
+        requirement = f"必须在部署 service-{index} 前完成回滚检查"
+        memory = ConversationService._build_long_term_memory(
+            None,
+            [SimpleNamespace(role="user", content=requirement)],
+        )
+        details.append(
+            {"scenario": f"历史约束 service-{index}", "passed": requirement in memory}
+        )
+    for index in range(10):
+        action = f"验收 module-{index} 的飞书闭环"
+        summary = SimpleNamespace(
+            status="confirmed",
+            summary=f"module-{index} 项目讨论",
+            decisions=["真实写操作必须调用工具"],
+            bugs=[],
+            action_items=[{"content": action, "status": "pending"}],
+        )
+        memory = ConversationService._build_long_term_memory(summary, [])
+        details.append(
+            {"scenario": f"已确认摘要待办 module-{index}", "passed": action in memory}
+        )
+    return details
+
+
+async def _offline_operation_cases() -> dict:
+    with tempfile.TemporaryDirectory(prefix="flowagent-eval-") as directory:
+        engine = create_engine(f"sqlite+aiosqlite:///{Path(directory) / 'eval.db'}")
+        await create_tables(engine)
+        factory = create_session_factory(engine)
+        conversations = ConversationService(factory, IdentityService())
+        message = UnifiedMessage(
+            platform="feishu",
+            tenant_id="offline-eval",
+            external_user_id="offline-user",
+            conversation_id="offline-conversation",
+            message_id="offline-duplicate-event",
+            message_type="text",
+            text="重复事件验收",
+        )
+        try:
+            accepted = await conversations.accept_inbound(message)
+            duplicate_results = [
+                await conversations.accept_inbound(message) for _ in range(99)
+            ]
+            async with factory() as session:
+                audit_total = int(
+                    await session.scalar(select(func.count(InboundEventAudit.id))) or 0
+                )
+                duplicate_total = int(
+                    await session.scalar(
+                        select(func.count(InboundEventAudit.id)).where(
+                            InboundEventAudit.duplicate.is_(True)
+                        )
+                    )
+                    or 0
+                )
+
+            confirmation_passed = 0
+            if accepted is not None:
+                confirmations = ConfirmationService(factory)
+                context = ToolContext(
+                    tenant_id=accepted.tenant_id,
+                    user_id=accepted.user_id,
+                    user_role=accepted.role,
+                    conversation_id=accepted.conversation_id,
+                    source_message_id=accepted.message_id,
+                    external_message_id=message.message_id,
+                )
+                for index in range(30):
+                    arguments = {
+                        "title": f"P1 confirmation case {index}",
+                        "body": "offline benchmark",
+                        "labels": ["bug", "P1"],
+                    }
+                    code = await confirmations.issue(
+                        context=context,
+                        tool_name="github_create_issue",
+                        arguments=arguments,
+                    )
+                    consumed, _ = await confirmations.consume(
+                        context=context,
+                        tool_name="github_create_issue",
+                        arguments=arguments,
+                        code=code,
+                    )
+                    reused, _ = await confirmations.consume(
+                        context=context,
+                        tool_name="github_create_issue",
+                        arguments=arguments,
+                        code=code,
+                    )
+                    confirmation_passed += int(consumed and not reused)
+            return {
+                "dedup_passed": int(
+                    accepted is not None
+                    and all(result is None for result in duplicate_results)
+                    and audit_total == 100
+                    and duplicate_total == 99
+                ),
+                "dedup_total": 1,
+                "deliveries": audit_total,
+                "duplicates": duplicate_total,
+                "confirmation_passed": confirmation_passed,
+                "confirmation_total": 30,
+            }
+        finally:
+            await engine.dispose()
+
+
 async def run() -> dict:
     provider = DevelopmentHashEmbeddingProvider(dimensions=256)
     corpus_vectors = await provider.embed(CORPUS)
@@ -67,16 +201,9 @@ async def run() -> dict:
         passed += int(ok)
         details.append({"query": query, "expected_document": expected + 1, "top_k": [item + 1 for item in top_k], "passed": ok})
 
-    context_passed = 0
-    for issue_no in range(101, 121):
-        url = f"https://github.com/Lyz-code00/FlowAgent/issues/{issue_no}"
-        older_rows = [
-            SimpleNamespace(
-                role="user", content=f"请记住 Issue #{issue_no}，链接 {url}"
-            )
-        ]
-        memory = ConversationService._build_long_term_memory(None, older_rows)
-        context_passed += int(f"#{issue_no}" in memory and url in memory)
+    context_cases = _offline_context_cases()
+    context_passed = sum(item["passed"] for item in context_cases)
+    operation_cases = await _offline_operation_cases()
 
     return {
         "suite": "flowagent-builtin-v1",
@@ -94,18 +221,47 @@ async def run() -> dict:
                 "note": "20 条内置研发知识问答，混合检索命中预期文档",
             },
             {
-                "key": "long_term_anchor_recall",
-                "label": "长期记忆锚点召回率",
-                "value": round(context_passed / 20 * 100, 2),
+                "key": "context_evidence_retention",
+                "label": "多轮上下文证据保留率",
+                "value": round(context_passed / len(context_cases) * 100, 2),
                 "unit": "%",
                 "numerator": context_passed,
-                "denominator": 20,
+                "denominator": len(context_cases),
                 "status": "measured",
                 "source": "offline_builtin",
-                "note": "20 条超过近期窗口的 Issue 编号与 URL 保留测试；不等同于线上模型语义成功率",
+                "note": "30 组历史 Issue/URL、明确约束和已确认摘要待办保留测试；不等同于线上模型语义成功率",
+            },
+            {
+                "key": "event_dedup_offline",
+                "label": "重复事件去重验收",
+                "value": 100.0 if operation_cases["dedup_passed"] else 0.0,
+                "unit": "%",
+                "numerator": operation_cases["duplicates"],
+                "denominator": 99,
+                "status": "measured",
+                "source": "offline_builtin",
+                "note": "同一飞书 message_id 连续投递 100 次，仅首条进入处理，99 次重复均被拦截",
+            },
+            {
+                "key": "confirmation_single_use",
+                "label": "高风险确认单次消费通过率",
+                "value": round(
+                    operation_cases["confirmation_passed"]
+                    / operation_cases["confirmation_total"]
+                    * 100,
+                    2,
+                ),
+                "unit": "%",
+                "numerator": operation_cases["confirmation_passed"],
+                "denominator": operation_cases["confirmation_total"],
+                "status": "measured",
+                "source": "offline_builtin",
+                "note": "30 组确认码均只允许绑定操作首次消费，复用全部拒绝",
             },
         ],
         "rag_cases": details,
+        "context_cases": context_cases,
+        "operation_cases": operation_cases,
     }
 
 

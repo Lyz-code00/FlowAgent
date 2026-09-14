@@ -83,9 +83,16 @@ async def test_quality_metrics_use_real_samples_and_track_duplicates(tmp_path) -
         await engine.dispose()
 
 
-async def test_builtin_benchmark_has_twenty_reproducible_cases() -> None:
+async def test_builtin_benchmark_has_reproducible_quality_cases() -> None:
     result = await run_benchmark()
-    recall = next(item for item in result["metrics"] if item["key"] == "rag_recall_at_5")
+    metrics = {item["key"]: item for item in result["metrics"]}
+    recall = metrics["rag_recall_at_5"]
     assert recall["denominator"] == 20
     assert recall["value"] >= 80
     assert len(result["rag_cases"]) == 20
+    assert metrics["context_evidence_retention"]["denominator"] == 30
+    assert metrics["context_evidence_retention"]["value"] == 100
+    assert metrics["event_dedup_offline"]["value"] == 100
+    assert result["operation_cases"]["deliveries"] == 100
+    assert result["operation_cases"]["duplicates"] == 99
+    assert metrics["confirmation_single_use"]["value"] == 100

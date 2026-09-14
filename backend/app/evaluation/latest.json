@@ -1,6 +1,6 @@
 {
   "suite": "flowagent-builtin-v1",
-  "generated_at": "2026-09-14T11:43:17.215656+00:00",
+  "generated_at": "2026-09-14T11:49:00.124372+00:00",
   "metrics": [
     {
       "key": "rag_recall_at_5",
@@ -14,15 +14,37 @@
       "note": "20 条内置研发知识问答，混合检索命中预期文档"
     },
     {
-      "key": "long_term_anchor_recall",
-      "label": "长期记忆锚点召回率",
+      "key": "context_evidence_retention",
+      "label": "多轮上下文证据保留率",
       "value": 100.0,
       "unit": "%",
-      "numerator": 20,
-      "denominator": 20,
+      "numerator": 30,
+      "denominator": 30,
       "status": "measured",
       "source": "offline_builtin",
-      "note": "20 条超过近期窗口的 Issue 编号与 URL 保留测试；不等同于线上模型语义成功率"
+      "note": "30 组历史 Issue/URL、明确约束和已确认摘要待办保留测试；不等同于线上模型语义成功率"
+    },
+    {
+      "key": "event_dedup_offline",
+      "label": "重复事件去重验收",
+      "value": 100.0,
+      "unit": "%",
+      "numerator": 99,
+      "denominator": 99,
+      "status": "measured",
+      "source": "offline_builtin",
+      "note": "同一飞书 message_id 连续投递 100 次，仅首条进入处理，99 次重复均被拦截"
+    },
+    {
+      "key": "confirmation_single_use",
+      "label": "高风险确认单次消费通过率",
+      "value": 100.0,
+      "unit": "%",
+      "numerator": 30,
+      "denominator": 30,
+      "status": "measured",
+      "source": "offline_builtin",
+      "note": "30 组确认码均只允许绑定操作首次消费，复用全部拒绝"
     }
   ],
   "rag_cases": [
@@ -266,5 +288,135 @@
       ],
       "passed": true
     }
-  ]
+  ],
+  "context_cases": [
+    {
+      "scenario": "历史 Issue 与 URL #201",
+      "passed": true
+    },
+    {
+      "scenario": "历史 Issue 与 URL #202",
+      "passed": true
+    },
+    {
+      "scenario": "历史 Issue 与 URL #203",
+      "passed": true
+    },
+    {
+      "scenario": "历史 Issue 与 URL #204",
+      "passed": true
+    },
+    {
+      "scenario": "历史 Issue 与 URL #205",
+      "passed": true
+    },
+    {
+      "scenario": "历史 Issue 与 URL #206",
+      "passed": true
+    },
+    {
+      "scenario": "历史 Issue 与 URL #207",
+      "passed": true
+    },
+    {
+      "scenario": "历史 Issue 与 URL #208",
+      "passed": true
+    },
+    {
+      "scenario": "历史 Issue 与 URL #209",
+      "passed": true
+    },
+    {
+      "scenario": "历史 Issue 与 URL #210",
+      "passed": true
+    },
+    {
+      "scenario": "历史约束 service-0",
+      "passed": true
+    },
+    {
+      "scenario": "历史约束 service-1",
+      "passed": true
+    },
+    {
+      "scenario": "历史约束 service-2",
+      "passed": true
+    },
+    {
+      "scenario": "历史约束 service-3",
+      "passed": true
+    },
+    {
+      "scenario": "历史约束 service-4",
+      "passed": true
+    },
+    {
+      "scenario": "历史约束 service-5",
+      "passed": true
+    },
+    {
+      "scenario": "历史约束 service-6",
+      "passed": true
+    },
+    {
+      "scenario": "历史约束 service-7",
+      "passed": true
+    },
+    {
+      "scenario": "历史约束 service-8",
+      "passed": true
+    },
+    {
+      "scenario": "历史约束 service-9",
+      "passed": true
+    },
+    {
+      "scenario": "已确认摘要待办 module-0",
+      "passed": true
+    },
+    {
+      "scenario": "已确认摘要待办 module-1",
+      "passed": true
+    },
+    {
+      "scenario": "已确认摘要待办 module-2",
+      "passed": true
+    },
+    {
+      "scenario": "已确认摘要待办 module-3",
+      "passed": true
+    },
+    {
+      "scenario": "已确认摘要待办 module-4",
+      "passed": true
+    },
+    {
+      "scenario": "已确认摘要待办 module-5",
+      "passed": true
+    },
+    {
+      "scenario": "已确认摘要待办 module-6",
+      "passed": true
+    },
+    {
+      "scenario": "已确认摘要待办 module-7",
+      "passed": true
+    },
+    {
+      "scenario": "已确认摘要待办 module-8",
+      "passed": true
+    },
+    {
+      "scenario": "已确认摘要待办 module-9",
+      "passed": true
+    }
+  ],
+  "operation_cases": {
+    "dedup_passed": 1,
+    "dedup_total": 1,
+    "deliveries": 100,
+    "duplicates": 99,
+    "confirmation_passed": 30,
+    "confirmation_total": 30
+  }
 }

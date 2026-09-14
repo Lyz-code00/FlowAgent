@@ -57,6 +57,18 @@ export interface QualityBenchmarkResponse {
     top_k: number[];
     passed: boolean;
   }>;
+  context_cases?: Array<{
+    scenario: string;
+    passed: boolean;
+  }>;
+  operation_cases?: {
+    dedup_passed: number;
+    dedup_total: number;
+    deliveries: number;
+    duplicates: number;
+    confirmation_passed: number;
+    confirmation_total: number;
+  };
 }
 
 export interface Conversation {
