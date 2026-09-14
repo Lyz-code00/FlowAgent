@@ -227,13 +227,23 @@ class KnowledgeService:
     @staticmethod
     def _tokenize(text: str) -> list[str]:
         tokens: list[str] = []
-        for segment in re.findall(r"[a-z0-9_.:/#-]+|[\u4e00-\u9fff]+", text.lower()):
+        lowered = text.lower()
+        for segment in re.findall(r"[a-z0-9_.:/#-]+|[\u4e00-\u9fff]+", lowered):
             if re.fullmatch(r"[\u4e00-\u9fff]+", segment):
                 tokens.extend(segment[index : index + 2] for index in range(len(segment) - 1))
                 if len(segment) == 1:
                     tokens.append(segment)
             else:
                 tokens.append(segment)
+        # Small, explicit domain aliases bridge common Chinese/English vocabulary.
+        # They apply to both queries and indexed chunks, and remain deterministic.
+        alias_groups = (
+            (("rag", "citation", "来源", "引用"), ("知识", "知识库", "检索", "证据", "citation")),
+            (("owner lookup", "owner_lookup", "负责人映射"), ("owner", "lookup", "负责人", "映射", "github_username", "open_id")),
+        )
+        for markers, aliases in alias_groups:
+            if any(marker in lowered for marker in markers):
+                tokens.extend(aliases)
         return tokens
 
     async def list_documents(self, *, tenant_key: str) -> list[DocumentInfo]:

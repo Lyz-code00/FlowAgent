@@ -1,13 +1,13 @@
 {
   "suite": "flowagent-builtin-v1",
-  "generated_at": "2026-09-14T11:00:34.323356+00:00",
+  "generated_at": "2026-09-14T11:43:17.215656+00:00",
   "metrics": [
     {
       "key": "rag_recall_at_5",
       "label": "RAG Recall@5",
-      "value": 90.0,
+      "value": 100.0,
       "unit": "%",
-      "numerator": 18,
+      "numerator": 20,
       "denominator": 20,
       "status": "measured",
       "source": "offline_builtin",
@@ -162,13 +162,13 @@
       "query": "RAG 回答如何标注来源",
       "expected_document": 6,
       "top_k": [
+        6,
         1,
         7,
         10,
-        3,
-        4
+        3
       ],
-      "passed": false
+      "passed": true
     },
     {
       "query": "查询线上错误应该用哪个系统",
@@ -210,13 +210,13 @@
       "query": "owner lookup 能返回哪些身份字段",
       "expected_document": 8,
       "top_k": [
+        8,
         3,
         5,
         10,
-        1,
-        7
+        1
       ],
-      "passed": false
+      "passed": true
     },
     {
       "query": "超过十轮后 Issue 编号还能记住吗",

@@ -170,3 +170,15 @@ def test_bm25_prioritizes_exact_technical_terms_and_chinese_phrases() -> None:
     assert scores[1] > scores[0]
     assert scores[1] > scores[2]
     assert scores[1] > 0
+
+
+def test_bm25_bridges_flowagent_domain_aliases() -> None:
+    documents = [
+        "知识库检索回答必须保留 Citation 证据。",
+        "服务负责人映射会返回 GitHub username 和飞书 open_id。",
+        "普通项目介绍。",
+    ]
+    citation_scores = KnowledgeService._bm25_scores("RAG 回答如何标注来源", documents)
+    owner_scores = KnowledgeService._bm25_scores("owner lookup 返回哪些身份字段", documents)
+    assert citation_scores.index(max(citation_scores)) == 0
+    assert owner_scores.index(max(owner_scores)) == 1
