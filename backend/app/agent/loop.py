@@ -96,6 +96,7 @@ class AgentLoop:
         created_issue: dict[str, Any] | None = None
         verified_links: list[str] = []
         generated_files: list[OutboundFile] = []
+        available_citation_ids: set[int] = set()
 
         for step_no in range(1, self.max_steps + 1):
             output = await self._complete(
@@ -106,6 +107,19 @@ class AgentLoop:
             )
             final_call = self._extract_final_call(output.tool_calls)
             if final_call is not None:
+                citation_error = self._citation_contract_error(
+                    final_call, available_citation_ids
+                )
+                if citation_error:
+                    messages.append(output.as_assistant_message())
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": final_call.id,
+                            "content": f"最终回答未通过 Citation 契约：{citation_error}",
+                        }
+                    )
+                    continue
                 return self._build_response(
                     final_call,
                     step_no,
@@ -122,6 +136,7 @@ class AgentLoop:
                     created_issue=created_issue,
                     verified_links=verified_links,
                     generated_files=generated_files,
+                    available_citation_ids=available_citation_ids,
                 )
 
             messages.append(output.as_assistant_message())
@@ -143,6 +158,11 @@ class AgentLoop:
                         "html_url": tool_result.display_data["html_url"],
                     }
                 if tool_result.success:
+                    if call.name == "knowledge_search":
+                        for item in tool_result.display_data.get("results") or []:
+                            citation_id = item.get("citation_id")
+                            if isinstance(citation_id, int):
+                                available_citation_ids.add(citation_id)
                     generated_files.extend(tool_result.files)
                     for url in self._extract_verified_urls(tool_result.display_data):
                         if url not in verified_links:
@@ -163,6 +183,7 @@ class AgentLoop:
             created_issue=created_issue,
             verified_links=verified_links,
             generated_files=generated_files,
+            available_citation_ids=available_citation_ids,
         )
 
     @staticmethod
@@ -301,6 +322,31 @@ class AgentLoop:
             },
         )
 
+    @staticmethod
+    def _citation_contract_error(
+        call: ToolCall, available_citation_ids: set[int]
+    ) -> str | None:
+        if not available_citation_ids:
+            return None
+        try:
+            args = SubmitFinalAnswerArgs.model_validate(call.arguments)
+        except ValidationError:
+            return "submit_final_answer 参数无效"
+        cited = set(args.citations)
+        if not cited:
+            return "本轮知识检索返回了证据，但 citations 为空"
+        unknown = cited - available_citation_ids
+        if unknown:
+            return f"引用了本轮不存在的 citation_id：{sorted(unknown)}"
+        missing_markers = [
+            citation_id
+            for citation_id in cited
+            if f"[{citation_id}]" not in args.answer
+        ]
+        if missing_markers:
+            return f"正文缺少 Citation 标记：{missing_markers}"
+        return None
+
     @classmethod
     def _extract_verified_urls(cls, value: Any) -> list[str]:
         urls: list[str] = []
@@ -326,6 +372,7 @@ class AgentLoop:
         created_issue: dict[str, Any] | None = None,
         verified_links: list[str] | None = None,
         generated_files: list[OutboundFile] | None = None,
+        available_citation_ids: set[int] | None = None,
     ) -> AgentResponse:
         final_step = step_no + 1
         verified_note = ""
@@ -343,6 +390,12 @@ class AgentLoop:
                 "除非已有工具证据表明用户的实际问题确已解决，否则 status 必须为 partial "
                 "或 blocked，并列出已完成内容、未完成项和一个可执行的下一步；不得暗示全部成功。"
                 + verified_note
+            )
+        if available_citation_ids:
+            instruction += (
+                "\n本轮知识检索可用 citation_id："
+                + ", ".join(str(item) for item in sorted(available_citation_ids))
+                + "。citations 字段必须选择实际使用的编号，正文必须出现对应 [编号]。"
             )
         try:
             output = await self._complete(
@@ -375,6 +428,52 @@ class AgentLoop:
             )
         final_call = self._extract_final_call(output.tool_calls)
         if final_call is not None:
+            citation_error = self._citation_contract_error(
+                final_call, available_citation_ids or set()
+            )
+            if citation_error:
+                try:
+                    repaired = await self._complete(
+                        messages=[
+                            *messages,
+                            output.as_assistant_message(),
+                            {
+                                "role": "tool",
+                                "tool_call_id": final_call.id,
+                                "content": (
+                                    "最终回答未通过 Citation 契约："
+                                    f"{citation_error}。请修正后重新调用 submit_final_answer。"
+                                ),
+                            },
+                        ],
+                        tools=[self.final_answer_tool.definition()],
+                        run_id=run_id,
+                        step_no=final_step + 1,
+                        tool_choice={
+                            "type": "function",
+                            "function": {"name": self.final_answer_tool.name},
+                        },
+                        disable_thinking=True,
+                        name_suffix=" (citation-repair)",
+                    )
+                except Exception:
+                    repaired = LLMOutput()
+                repaired_call = self._extract_final_call(repaired.tool_calls)
+                if repaired_call is None or self._citation_contract_error(
+                    repaired_call, available_citation_ids or set()
+                ):
+                    return AgentResponse(
+                        content="知识库证据已找到，但最终引用校验未通过，请稍后重试。",
+                        metadata={
+                            "steps": final_step + 1,
+                            "structured": False,
+                            "status": "blocked",
+                            "citation_validation_failed": True,
+                        },
+                        files=generated_files or [],
+                    )
+                final_call = repaired_call
+                final_step += 1
             return self._build_response(
                 final_call,
                 final_step,

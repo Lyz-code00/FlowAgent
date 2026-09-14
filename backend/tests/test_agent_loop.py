@@ -100,6 +100,54 @@ class DocumentProvider(LLMProvider):
         )
 
 
+class CitationRepairProvider(LLMProvider):
+    model_name = "citation-repair-model"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def complete(
+        self, *, messages, tools, tool_choice=None, disable_thinking=False
+    ) -> LLMOutput:
+        self.calls += 1
+        if self.calls == 1:
+            return LLMOutput(
+                tool_calls=[ToolCall(id="knowledge", name="knowledge_search", arguments={})]
+            )
+        if self.calls == 2:
+            return LLMOutput(
+                tool_calls=[
+                    ToolCall(
+                        id="bad-final",
+                        name="submit_final_answer",
+                        arguments={"answer": "依据知识库，令牌需要刷新。", "status": "resolved"},
+                    )
+                ]
+            )
+        return LLMOutput(
+            tool_calls=[
+                ToolCall(
+                    id="good-final",
+                    name="submit_final_answer",
+                    arguments={"answer": "依据知识库，令牌需要刷新。[1]", "status": "resolved", "citations": [1]},
+                )
+            ]
+        )
+
+
+class CitationKnowledgeTool(Tool):
+    name = "knowledge_search"
+    description = "Return one cited knowledge result."
+
+    async def run(self, context: ToolContext, args: BaseModel) -> ToolResponse:
+        return ToolResponse(
+            tool_name=self.name,
+            success=True,
+            llm_content='[{"citation_id": 1, "content": "刷新令牌"}]',
+            display_data={"results": [{"citation_id": 1, "content": "刷新令牌"}]},
+        )
+
+
 class FlakyReadTool(Tool):
     name = "flaky_read"
     description = "Read transient data."
@@ -181,6 +229,44 @@ async def test_tool_can_override_global_retry_budget() -> None:
     )
     assert response.success is False
     assert tool.calls == 1
+
+
+async def test_agent_rejects_missing_citation_and_asks_model_to_repair() -> None:
+    traces = FakeTraceService()
+    provider = CitationRepairProvider()
+    agent = AgentLoop(
+        provider=provider,
+        tool_runner=ToolRunner(
+            trace_service=traces,  # type: ignore[arg-type]
+            tools=[CitationKnowledgeTool()],
+        ),
+        trace_service=traces,  # type: ignore[arg-type]
+        max_steps=4,
+    )
+    response = await agent.run(
+        UnifiedMessage(
+            platform="feishu",
+            tenant_id="tenant",
+            external_user_id="user",
+            conversation_id="conversation",
+            message_id="citation-message",
+            message_type="text",
+            text="令牌过期怎么办",
+        ),
+        history=[HistoryMessage(role="user", content="令牌过期怎么办")],
+        run_id=1,
+        tool_context=ToolContext(
+            tenant_id=1,
+            user_id=1,
+            user_role="lead",
+            conversation_id=1,
+            source_message_id=1,
+            external_message_id="citation-message",
+        ),
+    )
+    assert provider.calls == 3
+    assert response.metadata["citations"] == [1]
+    assert "[1]" in response.content
 
 
 async def test_agent_loop_stops_at_configured_max_steps() -> None:

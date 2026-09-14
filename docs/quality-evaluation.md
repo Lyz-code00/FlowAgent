@@ -46,3 +46,5 @@ python -m app.evaluation.run
 - 页面把 Agent Run、LLM Step 和 Tool Step 的平均/P95 分开，避免端到端数字掩盖瓶颈。
 - `web_search` 使用独立的 8 秒超时和 1 次尝试；`open_url` 使用 10 秒超时和最多 2 次尝试。
 - 运行配置页显示联网搜索后端和保护参数。国内生产环境建议配置 Bocha API；未配置时不把搜索失败伪装成检索成功。
+
+Citation 整改采用结构化证据契约：知识检索返回有效结果后，`submit_final_answer.citations` 必须引用本轮存在的编号，正文也必须出现对应 `[编号]`。校验失败时要求模型重写一次；系统不做字符过滤、不改写正文，也不会自动生成不存在的引用。
