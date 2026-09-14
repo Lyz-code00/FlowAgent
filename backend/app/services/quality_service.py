@@ -114,20 +114,23 @@ class QualityService:
             ).all()
             context_messages = (
                 await session.execute(
-                    select(Message.id, Message.content).where(
+                    select(Message.id, Message.conversation_id, Message.content).where(
                         Message.role == "user", Message.created_at >= since
                     )
                 )
             ).all()
-            successful_issue_source_ids = set(
-                await session.scalars(
-                    select(ToolOperation.source_message_id).where(
+            successful_issue_rows = (
+                await session.execute(
+                    select(
+                        ToolOperation.source_message_id,
+                        ToolOperation.conversation_id,
+                    ).where(
                         ToolOperation.tool_name == "github_create_issue",
                         ToolOperation.status == "succeeded",
                         ToolOperation.created_at >= since,
                     )
                 )
-            )
+            ).all()
 
         tool_total = len(tool_rows)
         tool_ok = sum(status == "succeeded" for (status,) in tool_rows)
@@ -161,12 +164,17 @@ class QualityService:
         # A duplicate row is written only after the unique message constraint blocked it.
         dedup_success = duplicates
         context_candidates = [
-            message_id
-            for message_id, content in context_messages
+            (message_id, conversation_id)
+            for message_id, conversation_id, content in context_messages
             if self._CONTEXT_ISSUE_RE.search(content)
         ]
         context_success = sum(
-            message_id in successful_issue_source_ids for message_id in context_candidates
+            any(
+                operation_conversation_id == conversation_id
+                and message_id <= source_message_id <= message_id + 6
+                for source_message_id, operation_conversation_id in successful_issue_rows
+            )
+            for message_id, conversation_id in context_candidates
         )
 
         return {
@@ -180,7 +188,7 @@ class QualityService:
                 self._metric("average_response_ms", "平均响应时间", average_latency, "ms", None, len(latencies), "已完成 Agent Run 的端到端耗时"),
                 self._metric("p95_response_ms", "P95 响应时间", p95_latency, "ms", None, len(latencies), "最近窗口内端到端耗时第 95 百分位"),
                 self._metric("event_dedup_rate", "重复事件去重率", self._ratio(dedup_success, duplicates), "%", dedup_success, duplicates, "被唯一消息约束成功拦截的重复投递"),
-                self._metric("context_issue_success_rate", "多轮上下文成功率", self._ratio(context_success, len(context_candidates)), "%", context_success, len(context_candidates), "含指代表达的建单请求中真实建单成功占比"),
+                self._metric("context_issue_success_rate", "多轮上下文成功率", self._ratio(context_success, len(context_candidates)), "%", context_success, len(context_candidates), "含指代表达的建单请求在同会话后续 6 条消息内真实建单成功占比"),
                 self._metric("positive_feedback_rate", "用户正向反馈率", self._ratio(positive, feedback_total), "%", positive, feedback_total, "正向反馈 / 全部已评价回答"),
             ],
         }
