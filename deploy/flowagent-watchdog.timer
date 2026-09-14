@@ -1,0 +1,12 @@
+[Unit]
+Description=Run FlowAgent health watchdog every minute
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+Persistent=true
+Unit=flowagent-watchdog.service
+
+[Install]
+WantedBy=timers.target
+
