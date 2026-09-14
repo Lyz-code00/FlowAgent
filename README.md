@@ -219,4 +219,4 @@ web/src/
 
 ## 下一里程碑
 
-PRD 四个研发协同场景的产品链路已覆盖，项目进入 MVP 收尾与试运行阶段。后续增强项包括组织级单点登录（OIDC/SSO）、钉钉/企业微信 Channel Adapter、面向二进制 Issue 附件的对象存储，以及基于真实 Bad Case 的 Rerank 与持续评估。
+PRD 四个研发协同场景的产品链路已覆盖，MVP 已完成收尾并进入试运行阶段。最终范围、量化结果、部署与安全状态见 [`docs/mvp-closeout.md`](docs/mvp-closeout.md)。后续增强项包括组织级单点登录（OIDC/SSO）、钉钉/企业微信 Channel Adapter、面向二进制 Issue 附件的对象存储，以及基于真实 Bad Case 的 Rerank 与持续评估。
