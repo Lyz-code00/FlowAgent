@@ -94,6 +94,18 @@ async def dashboard_metrics(request: Request) -> dict:
     return await request.app.state.admin_query_service.dashboard_metrics()
 
 
+@router.get("/quality/metrics")
+async def quality_metrics(
+    request: Request, days: int = Query(default=30, ge=1, le=365)
+) -> dict:
+    return await request.app.state.quality_service.metrics(days=days)
+
+
+@router.get("/quality/benchmark")
+async def quality_benchmark(request: Request) -> dict:
+    return request.app.state.quality_service.benchmark()
+
+
 @router.get("/users")
 async def list_users(request: Request) -> list[dict]:
     return await request.app.state.admin_query_service.list_users()

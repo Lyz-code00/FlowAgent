@@ -47,12 +47,25 @@ class WebService:
         client: httpx.AsyncClient | None = None,
         max_response_bytes: int = 1_000_000,
         timeout_seconds: float = 15,
+        search_backend: str = "duckduckgo",
+        search_api_key: str = "",
+        search_base_url: str = "https://api.bochaai.com/v1/web-search",
     ) -> None:
         self._client = client
         self.max_response_bytes = max_response_bytes
         self.timeout_seconds = timeout_seconds
+        self.search_backend = search_backend
+        self.search_api_key = search_api_key
+        self.search_base_url = search_base_url
 
     async def search(self, *, query: str, limit: int = 5) -> list[WebSearchResult]:
+        if self.search_backend == "bocha":
+            return await self._search_bocha(query=query, limit=limit)
+        return await self._search_duckduckgo(query=query, limit=limit)
+
+    async def _search_duckduckgo(
+        self, *, query: str, limit: int
+    ) -> list[WebSearchResult]:
         owns_client = self._client is None
         client = self._client or httpx.AsyncClient(
             timeout=self.timeout_seconds, headers={"User-Agent": self.USER_AGENT}
@@ -91,6 +104,64 @@ class WebService:
                         title=self._clean_text(link.text_content()),
                         url=url,
                         snippet=snippet,
+                    )
+                )
+                if len(results) >= limit:
+                    break
+            return results
+        except httpx.HTTPError as exc:
+            raise WebAccessError("web search request failed") from exc
+        finally:
+            if owns_client:
+                await client.aclose()
+
+    async def _search_bocha(
+        self, *, query: str, limit: int
+    ) -> list[WebSearchResult]:
+        if not self.search_api_key:
+            raise WebAccessError(
+                "web search backend 'bocha' is not configured: "
+                "set FLOWAGENT_WEB_SEARCH_API_KEY"
+            )
+        owns_client = self._client is None
+        client = self._client or httpx.AsyncClient(
+            timeout=self.timeout_seconds, headers={"User-Agent": self.USER_AGENT}
+        )
+        try:
+            response = await client.post(
+                self.search_base_url,
+                json={
+                    "query": query,
+                    "summary": False,
+                    "freshness": "noLimit",
+                    "count": min(max(limit, 1), 50),
+                },
+                headers={
+                    "Authorization": f"Bearer {self.search_api_key}",
+                    "Content-Type": "application/json",
+                },
+            )
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, dict):
+                raise WebAccessError("web search returned an unexpected response")
+            code = payload.get("code")
+            if code is not None and code != 200:
+                raise WebAccessError(
+                    "web search failed: "
+                    f"{payload.get('msg') or payload.get('message') or code}"
+                )
+            data = payload.get("data") or {}
+            items = (data.get("webPages") or {}).get("value") or []
+            results: list[WebSearchResult] = []
+            for item in items:
+                results.append(
+                    WebSearchResult(
+                        title=self._clean_text(item.get("name") or ""),
+                        url=item.get("url") or "",
+                        snippet=self._clean_text(
+                            item.get("snippet") or item.get("summary") or ""
+                        ),
                     )
                 )
                 if len(results) >= limit:

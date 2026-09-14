@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.db.models import Conversation, ConversationSummary, Message
+from app.db.models import Conversation, ConversationSummary, InboundEventAudit, Message
 from app.schemas.message import UnifiedMessage
 from app.services.identity_service import IdentityService
 
@@ -44,6 +44,7 @@ class ConversationService:
     async def accept_inbound(self, message: UnifiedMessage) -> StoredInbound | None:
         async with self.session_factory() as session:
             if await self._message_exists(session, message.message_id):
+                await self._record_delivery(message, duplicate=True)
                 return None
             try:
                 identity = await self.identity_service.resolve(session, message)
@@ -73,6 +74,13 @@ class ConversationService:
                     created_at=message.timestamp,
                 )
                 session.add(stored)
+                session.add(
+                    InboundEventAudit(
+                        platform=message.platform,
+                        external_message_id=message.message_id,
+                        duplicate=False,
+                    )
+                )
                 await session.commit()
                 return StoredInbound(
                     conversation_id=conversation.id,
@@ -84,8 +92,22 @@ class ConversationService:
             except IntegrityError:
                 await session.rollback()
                 if await self._message_exists(session, message.message_id):
+                    await self._record_delivery(message, duplicate=True)
                     return None
                 raise
+
+    async def _record_delivery(
+        self, message: UnifiedMessage, *, duplicate: bool
+    ) -> None:
+        async with self.session_factory() as audit_session:
+            audit_session.add(
+                InboundEventAudit(
+                    platform=message.platform,
+                    external_message_id=message.message_id,
+                    duplicate=duplicate,
+                )
+            )
+            await audit_session.commit()
 
     @staticmethod
     def _message_content_for_history(message: UnifiedMessage) -> str:

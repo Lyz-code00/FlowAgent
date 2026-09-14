@@ -29,6 +29,7 @@ from app.services.knowledge_service import KnowledgeService
 from app.services.message_gateway import MessageGateway
 from app.services.observability_service import ObservabilityService
 from app.services.ownership_service import OwnershipService
+from app.services.quality_service import QualityService
 from app.services.permission_service import PermissionService
 from app.services.summary_service import SummaryService
 from app.services.tool_operation_service import ToolOperationService
@@ -144,7 +145,11 @@ async def lifespan(app: FastAPI):
     operation_service = ToolOperationService(session_factory)
     confirmation_service = ConfirmationService(session_factory)
     summary_service = SummaryService(session_factory)
-    web_service = WebService()
+    web_service = WebService(
+        search_backend=settings.web_search_backend,
+        search_api_key=settings.web_search_api_key,
+        search_base_url=settings.web_search_base_url,
+    )
     github_config_service = GitHubConfigService(
         session_factory,
         SecretCipher(settings.config_encryption_key or settings.admin_api_token),
@@ -244,6 +249,7 @@ async def lifespan(app: FastAPI):
 
     app.state.db_engine = engine
     app.state.admin_query_service = AdminQueryService(session_factory)
+    app.state.quality_service = QualityService(session_factory)
     app.state.feedback_service = FeedbackService(session_factory)
     app.state.agent_config_service = agent_config_service
     app.state.github_config_service = github_config_service

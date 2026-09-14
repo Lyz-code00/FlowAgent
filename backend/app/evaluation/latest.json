@@ -1,0 +1,270 @@
+{
+  "suite": "flowagent-builtin-v1",
+  "generated_at": "2026-09-14T11:00:34.323356+00:00",
+  "metrics": [
+    {
+      "key": "rag_recall_at_5",
+      "label": "RAG Recall@5",
+      "value": 90.0,
+      "unit": "%",
+      "numerator": 18,
+      "denominator": 20,
+      "status": "measured",
+      "source": "offline_builtin",
+      "note": "20 条内置研发知识问答，混合检索命中预期文档"
+    },
+    {
+      "key": "long_term_anchor_recall",
+      "label": "长期记忆锚点召回率",
+      "value": 100.0,
+      "unit": "%",
+      "numerator": 20,
+      "denominator": 20,
+      "status": "measured",
+      "source": "offline_builtin",
+      "note": "20 条超过近期窗口的 Issue 编号与 URL 保留测试；不等同于线上模型语义成功率"
+    }
+  ],
+  "rag_cases": [
+    {
+      "query": "支付成功但订单仍然 pending 要检查什么",
+      "expected_document": 1,
+      "top_k": [
+        1,
+        3,
+        7,
+        8,
+        10
+      ],
+      "passed": true
+    },
+    {
+      "query": "PaymentSucceededEvent 是谁消费的",
+      "expected_document": 1,
+      "top_k": [
+        1,
+        2,
+        9,
+        10,
+        8
+      ],
+      "passed": true
+    },
+    {
+      "query": "TOKEN_EXPIRED 如何处理",
+      "expected_document": 2,
+      "top_k": [
+        2,
+        1,
+        3,
+        9,
+        10
+      ],
+      "passed": true
+    },
+    {
+      "query": "登录接口返回 401 怎么办",
+      "expected_document": 2,
+      "top_k": [
+        2,
+        7,
+        4,
+        1,
+        8
+      ],
+      "passed": true
+    },
+    {
+      "query": "生产上线之前有哪些检查",
+      "expected_document": 3,
+      "top_k": [
+        3,
+        1,
+        7,
+        10,
+        8
+      ],
+      "passed": true
+    },
+    {
+      "query": "发布失败如何预留回滚点",
+      "expected_document": 3,
+      "top_k": [
+        3,
+        9,
+        10,
+        1,
+        7
+      ],
+      "passed": true
+    },
+    {
+      "query": "创建 P1 为什么需要确认码",
+      "expected_document": 4,
+      "top_k": [
+        4,
+        6,
+        9,
+        1,
+        10
+      ],
+      "passed": true
+    },
+    {
+      "query": "高风险 Issue 的二次确认规则",
+      "expected_document": 4,
+      "top_k": [
+        4,
+        9,
+        10,
+        5,
+        6
+      ],
+      "passed": true
+    },
+    {
+      "query": "飞书消息为什么会收到两次",
+      "expected_document": 5,
+      "top_k": [
+        10,
+        5,
+        8,
+        9,
+        4
+      ],
+      "passed": true
+    },
+    {
+      "query": "im.message.receive_v1 幂等键是什么",
+      "expected_document": 5,
+      "top_k": [
+        5,
+        8,
+        9,
+        7,
+        10
+      ],
+      "passed": true
+    },
+    {
+      "query": "知识库可以上传哪些格式",
+      "expected_document": 6,
+      "top_k": [
+        6,
+        5,
+        4,
+        3,
+        10
+      ],
+      "passed": true
+    },
+    {
+      "query": "RAG 回答如何标注来源",
+      "expected_document": 6,
+      "top_k": [
+        1,
+        7,
+        10,
+        3,
+        4
+      ],
+      "passed": false
+    },
+    {
+      "query": "查询线上错误应该用哪个系统",
+      "expected_document": 7,
+      "top_k": [
+        7,
+        2,
+        3,
+        8,
+        1
+      ],
+      "passed": true
+    },
+    {
+      "query": "Prometheus Loki Sentry 分别查什么",
+      "expected_document": 7,
+      "top_k": [
+        7,
+        8,
+        3,
+        5,
+        10
+      ],
+      "passed": true
+    },
+    {
+      "query": "如何查后端服务负责人 GitHub 账号",
+      "expected_document": 8,
+      "top_k": [
+        8,
+        7,
+        4,
+        2,
+        1
+      ],
+      "passed": true
+    },
+    {
+      "query": "owner lookup 能返回哪些身份字段",
+      "expected_document": 8,
+      "top_k": [
+        3,
+        5,
+        10,
+        1,
+        7
+      ],
+      "passed": false
+    },
+    {
+      "query": "超过十轮后 Issue 编号还能记住吗",
+      "expected_document": 9,
+      "top_k": [
+        9,
+        4,
+        2,
+        5,
+        10
+      ],
+      "passed": true
+    },
+    {
+      "query": "长期记忆会保留哪些锚点",
+      "expected_document": 9,
+      "top_k": [
+        9,
+        6,
+        4,
+        10,
+        2
+      ],
+      "passed": true
+    },
+    {
+      "query": "能不能生成 Word 文档",
+      "expected_document": 10,
+      "top_k": [
+        10,
+        5,
+        9,
+        3,
+        6
+      ],
+      "passed": true
+    },
+    {
+      "query": "生成的 DOCX 如何发到飞书",
+      "expected_document": 10,
+      "top_k": [
+        10,
+        8,
+        5,
+        3,
+        9
+      ],
+      "passed": true
+    }
+  ]
+}

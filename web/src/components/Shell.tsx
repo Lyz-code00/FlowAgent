@@ -1,5 +1,6 @@
 import {
   BookOpen,
+  BarChart3,
   Bot,
   ChevronRight,
   Gauge,
@@ -23,6 +24,7 @@ const nav = [
   { to: "/users", label: "用户与权限", icon: UserRoundCog },
   { to: "/summaries", label: "讨论沉淀", icon: ClipboardList },
   { to: "/feedback", label: "反馈与 Bad Case", icon: MessageCircleWarning },
+  { to: "/quality", label: "量化评估", icon: BarChart3 },
   { to: "/configuration", label: "运行配置", icon: Settings }
 ];
 
@@ -34,6 +36,7 @@ const titles: Record<string, string> = {
   "/users": "用户与权限",
   "/summaries": "讨论沉淀",
   "/feedback": "反馈与 Bad Case",
+  "/quality": "量化评估",
   "/configuration": "运行配置"
 };
 

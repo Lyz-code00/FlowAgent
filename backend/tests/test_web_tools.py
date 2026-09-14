@@ -1,4 +1,5 @@
 import gzip
+import json
 
 import httpx
 import pytest
@@ -125,3 +126,48 @@ async def test_bounded_get_removes_encoding_header_after_decoding() -> None:
 
     assert response.content == b"plain decoded body"
     assert "content-encoding" not in response.headers
+
+
+async def test_web_search_bocha_backend_posts_and_parses() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == "https://api.bochaai.com/v1/web-search"
+        assert request.headers["authorization"] == "Bearer test-key"
+        body = json.loads(request.content)
+        assert body["query"] == "deepseek harness"
+        assert body["freshness"] == "noLimit"
+        assert body["count"] == 3
+        return httpx.Response(
+            200,
+            json={
+                "code": 200,
+                "data": {
+                    "webPages": {
+                        "value": [
+                            {
+                                "name": "DeepSeek Harness 官网",
+                                "url": "https://www.deepseek.com/harness/",
+                                "snippet": "开发者预览版",
+                            }
+                        ]
+                    }
+                },
+            },
+            request=request,
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        results = await WebService(
+            client=client,
+            search_backend="bocha",
+            search_api_key="test-key",
+        ).search(query="deepseek harness", limit=3)
+
+    assert results[0].title == "DeepSeek Harness 官网"
+    assert results[0].url == "https://www.deepseek.com/harness/"
+    assert results[0].snippet == "开发者预览版"
+
+
+async def test_web_search_bocha_requires_api_key() -> None:
+    service = WebService(search_backend="bocha", search_api_key="")
+    with pytest.raises(WebAccessError, match="not configured"):
+        await service.search(query="anything", limit=3)

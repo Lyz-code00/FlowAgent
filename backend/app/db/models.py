@@ -131,6 +131,28 @@ class Message(Base):
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
 
 
+class InboundEventAudit(Base):
+    """One row per accepted or rejected channel delivery for dedup observability."""
+
+    __tablename__ = "inbound_event_audits"
+    __table_args__ = (
+        Index("ix_inbound_event_audits_created_at", "created_at"),
+        Index(
+            "ix_inbound_event_audits_platform_message",
+            "platform",
+            "external_message_id",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    platform: Mapped[str] = mapped_column(String(32))
+    external_message_id: Mapped[str] = mapped_column(String(255))
+    duplicate: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class Feedback(TimestampMixin, Base):
     __tablename__ = "feedback"
 

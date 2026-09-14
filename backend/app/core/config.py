@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     knowledge_min_score: float = 0.05
     knowledge_max_file_bytes: int = 10 * 1024 * 1024
     attachment_max_file_bytes: int = 10 * 1024 * 1024
+    web_search_backend: str = "duckduckgo"
+    web_search_api_key: str = ""
+    web_search_base_url: str = "https://api.bochaai.com/v1/web-search"
     transcription_backend: str = ""
     transcription_base_url: str = ""
     transcription_api_key: str = ""

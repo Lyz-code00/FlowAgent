@@ -9,6 +9,7 @@ import Feedback from "./pages/Feedback";
 import Knowledge from "./pages/Knowledge";
 import Incidents from "./pages/Incidents";
 import Login from "./pages/Login";
+import Quality from "./pages/Quality";
 import Summaries from "./pages/Summaries";
 import Users from "./pages/Users";
 
@@ -31,6 +32,7 @@ export default function App() {
         <Route path="/users" element={<Users />} />
         <Route path="/summaries" element={<Summaries />} />
         <Route path="/feedback" element={<Feedback />} />
+        <Route path="/quality" element={<Quality />} />
         <Route path="/configuration" element={<Configuration />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

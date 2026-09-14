@@ -42,6 +42,8 @@ FlowAgent 是面向软件研发团队的飞书 AI 研发协同工作台。当前
 - 讨论摘要支持编辑、确认，并将待办幂等转换为真实 GitHub Issue。
 - Agent 回复支持正向/负向反馈，负向反馈集中进入 Bad Case 页面。
 - Agent Trace 通过鉴权 SSE 实时更新，可展开查看 Tool 参数、结果、异常与最终答案。
+- 提供“量化评估”页面：生产窗口统计 Tool/Issue 成功率、Citation 覆盖、Agent Steps、平均/P95 耗时、重复事件去重、多轮指代建单和用户反馈；无样本显示“待积累”。
+- 内置 20 条可复跑研发知识问题集，当前基线 RAG Recall@5 为 90%（18/20）；离线基准与生产观测值严格分开展示。
 - 管理 API 与知识库 API 通过独立 Admin Token 保护，前端仅在当前浏览器会话中保存 Token。
 
 ## 本地运行
@@ -187,6 +189,15 @@ cd backend
 pytest
 ```
 
+重新生成内置量化基准：
+
+```bash
+cd backend
+python -m app.evaluation.run
+```
+
+量化口径、样本边界与收尾门槛见 [`docs/quality-evaluation.md`](docs/quality-evaluation.md)。
+
 ## 目录
 
 ```text
@@ -208,4 +219,4 @@ web/src/
 
 ## 下一里程碑
 
-PRD 四个研发协同场景的产品链路已覆盖。后续增强项包括组织级单点登录（OIDC/SSO）、钉钉/企业微信 Channel Adapter、面向二进制 Issue 附件的对象存储，以及基于 Bad Case 的离线评估与 Rerank。
+PRD 四个研发协同场景的产品链路已覆盖，项目进入 MVP 收尾与试运行阶段。后续增强项包括组织级单点登录（OIDC/SSO）、钉钉/企业微信 Channel Adapter、面向二进制 Issue 附件的对象存储，以及基于真实 Bad Case 的 Rerank 与持续评估。

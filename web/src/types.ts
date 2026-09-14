@@ -8,6 +8,36 @@ export interface Metrics {
   average_response_ms: number;
 }
 
+export interface QualityMetric {
+  key: string;
+  label: string;
+  value: number | null;
+  unit: string;
+  numerator: number | null;
+  denominator: number | null;
+  status: "measured" | "insufficient_data";
+  source: "production" | "offline_builtin";
+  note: string;
+}
+
+export interface QualityMetricsResponse {
+  window_days: number;
+  generated_at: string;
+  metrics: QualityMetric[];
+}
+
+export interface QualityBenchmarkResponse {
+  suite: string;
+  generated_at: string | null;
+  metrics: QualityMetric[];
+  rag_cases?: Array<{
+    query: string;
+    expected_document: number;
+    top_k: number[];
+    passed: boolean;
+  }>;
+}
+
 export interface Conversation {
   id: number;
   tenant_key: string;
