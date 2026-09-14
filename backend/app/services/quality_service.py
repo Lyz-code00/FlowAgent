@@ -36,6 +36,35 @@ class QualityService:
         return round(numerator / denominator * 100, 2)
 
     @staticmethod
+    def _average(values: list[int]) -> float | None:
+        return round(sum(values) / len(values), 2) if values else None
+
+    @staticmethod
+    def _p95(values: list[int]) -> float | None:
+        if not values:
+            return None
+        ordered = sorted(values)
+        return float(ordered[max(0, math.ceil(len(ordered) * 0.95) - 1)])
+
+    @staticmethod
+    def _failure_category(error: str | None) -> str:
+        normalized = (error or "unknown").lower()
+        rules = (
+            ("timeout", ("timeout", "timed out", "超时")),
+            ("permission", ("permission", "forbidden", "unauthorized", "权限", "401", "403")),
+            ("rate_limit", ("rate limit", "rate_limit", "429", "限流")),
+            ("validation", ("validation", "invalid tool arguments", "schema", "参数", "字段")),
+            ("configuration", ("not configured", "missing config", "未配置", "requires configuration")),
+            ("confirmation", ("confirmation required", "确认")),
+            ("in_progress", ("already in progress", "正在执行")),
+            ("external_api", ("request failed", "http", "github", "feishu", "loki", "sentry", "prometheus")),
+        )
+        for category, markers in rules:
+            if any(marker in normalized for marker in markers):
+                return category
+        return "execution"
+
+    @staticmethod
     def _metric(
         key: str,
         label: str,
@@ -62,11 +91,25 @@ class QualityService:
         async with self.session_factory() as session:
             tool_rows = (
                 await session.execute(
-                    select(AgentStep.status).where(
+                    select(
+                        AgentStep.name,
+                        AgentStep.status,
+                        AgentStep.latency_ms,
+                        AgentStep.error,
+                    ).where(
                         AgentStep.kind == "tool", AgentStep.created_at >= since
                     )
                 )
             ).all()
+            llm_latency_rows = list(
+                await session.scalars(
+                    select(AgentStep.latency_ms).where(
+                        AgentStep.kind == "llm",
+                        AgentStep.latency_ms.is_not(None),
+                        AgentStep.created_at >= since,
+                    )
+                )
+            )
             issue_rows = (
                 await session.execute(
                     select(ToolOperation.status).where(
@@ -133,18 +176,62 @@ class QualityService:
             ).all()
 
         tool_total = len(tool_rows)
-        tool_ok = sum(status == "succeeded" for (status,) in tool_rows)
+        tool_ok = sum(status == "succeeded" for _, status, _, _ in tool_rows)
         issue_total = len(issue_rows)
         issue_ok = sum(status == "succeeded" for (status,) in issue_rows)
         latencies = sorted(
             int(latency) for _, latency, _ in run_rows if latency is not None
         )
-        average_latency = round(sum(latencies) / len(latencies), 2) if latencies else None
-        p95_latency = (
-            float(latencies[max(0, math.ceil(len(latencies) * 0.95) - 1)])
-            if latencies
-            else None
-        )
+        average_latency = self._average(latencies)
+        p95_latency = self._p95(latencies)
+
+        tool_groups: dict[str, dict[str, Any]] = {}
+        failure_groups: dict[str, dict[str, Any]] = {}
+        tool_latencies: list[int] = []
+        for name, status, latency_ms, error in tool_rows:
+            tool_name = name or "unknown"
+            group = tool_groups.setdefault(
+                tool_name, {"attempts": 0, "succeeded": 0, "failed": 0, "latencies": []}
+            )
+            group["attempts"] += 1
+            group["succeeded" if status == "succeeded" else "failed"] += 1
+            if latency_ms is not None:
+                latency = int(latency_ms)
+                group["latencies"].append(latency)
+                tool_latencies.append(latency)
+            if status != "succeeded":
+                category = self._failure_category(error)
+                failure = failure_groups.setdefault(
+                    category, {"count": 0, "tools": set(), "examples": []}
+                )
+                failure["count"] += 1
+                failure["tools"].add(tool_name)
+                if error and error not in failure["examples"] and len(failure["examples"]) < 3:
+                    failure["examples"].append(error[:240])
+
+        tool_breakdown = [
+            {
+                "tool_name": name,
+                "attempts": values["attempts"],
+                "succeeded": values["succeeded"],
+                "failed": values["failed"],
+                "success_rate": self._ratio(values["succeeded"], values["attempts"]),
+                "average_latency_ms": self._average(values["latencies"]),
+                "p95_latency_ms": self._p95(values["latencies"]),
+            }
+            for name, values in tool_groups.items()
+        ]
+        tool_breakdown.sort(key=lambda item: (-item["failed"], -item["attempts"], item["tool_name"]))
+        failure_categories = [
+            {
+                "category": category,
+                "count": values["count"],
+                "tools": sorted(values["tools"]),
+                "examples": values["examples"],
+            }
+            for category, values in failure_groups.items()
+        ]
+        failure_categories.sort(key=lambda item: (-item["count"], item["category"]))
         steps_by_run: dict[int, set[int]] = {}
         for run_id, step_no in step_rows:
             steps_by_run.setdefault(run_id, set()).add(step_no)
@@ -180,6 +267,28 @@ class QualityService:
         return {
             "window_days": days,
             "generated_at": datetime.now(timezone.utc).isoformat(),
+            "tool_breakdown": tool_breakdown,
+            "failure_categories": failure_categories,
+            "latency_breakdown": [
+                {
+                    "stage": "agent_run",
+                    "samples": len(latencies),
+                    "average_ms": self._average(latencies),
+                    "p95_ms": self._p95(latencies),
+                },
+                {
+                    "stage": "llm_step",
+                    "samples": len(llm_latency_rows),
+                    "average_ms": self._average([int(value) for value in llm_latency_rows]),
+                    "p95_ms": self._p95([int(value) for value in llm_latency_rows]),
+                },
+                {
+                    "stage": "tool_step",
+                    "samples": len(tool_latencies),
+                    "average_ms": self._average(tool_latencies),
+                    "p95_ms": self._p95(tool_latencies),
+                },
+            ],
             "metrics": [
                 self._metric("tool_success_rate", "Tool Call 成功率", self._ratio(tool_ok, tool_total), "%", tool_ok, tool_total, "成功 Tool Step / 全部 Tool Step"),
                 self._metric("issue_success_rate", "GitHub Issue 创建成功率", self._ratio(issue_ok, issue_total), "%", issue_ok, issue_total, "真实创建成功 / 创建尝试"),

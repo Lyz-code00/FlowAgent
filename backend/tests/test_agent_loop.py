@@ -115,6 +115,21 @@ class FlakyReadTool(Tool):
         return ToolResponse(tool_name=self.name, success=True, llm_content="ok")
 
 
+class BoundedReadTool(Tool):
+    name = "bounded_read"
+    description = "Fail quickly with a tool-specific retry budget."
+    retryable = True
+    max_attempts = 1
+    timeout_seconds = 0.01
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def run(self, context: ToolContext, args: BaseModel) -> ToolResponse:
+        self.calls += 1
+        raise RuntimeError("provider unavailable")
+
+
 async def test_read_tool_retries_with_bounded_attempts() -> None:
     traces = FakeTraceService()
     tool = FlakyReadTool()
@@ -141,6 +156,31 @@ async def test_read_tool_retries_with_bounded_attempts() -> None:
     assert response.display_data["retry_attempts"] == 3
     assert tool.calls == 3
     assert len(traces.steps) == 1
+
+
+async def test_tool_can_override_global_retry_budget() -> None:
+    traces = FakeTraceService()
+    tool = BoundedReadTool()
+    response = await ToolRunner(
+        trace_service=traces,  # type: ignore[arg-type]
+        tools=[tool],
+        max_attempts=3,
+        retry_backoff_seconds=0,
+    ).run(
+        call=ToolCall(id="bounded", name=tool.name, arguments={}),
+        run_id=1,
+        step_no=1,
+        context=ToolContext(
+            tenant_id=1,
+            user_id=1,
+            user_role="lead",
+            conversation_id=1,
+            source_message_id=1,
+            external_message_id="message",
+        ),
+    )
+    assert response.success is False
+    assert tool.calls == 1
 
 
 async def test_agent_loop_stops_at_configured_max_steps() -> None:

@@ -209,6 +209,16 @@ async def runtime_config(request: Request) -> dict:
         "feishu": {
             "configured": bool(settings.feishu_app_id and settings.feishu_app_secret)
         },
+        "web_search": {
+            "backend": settings.web_search_backend,
+            "configured": (
+                bool(settings.web_search_api_key)
+                if settings.web_search_backend == "bocha"
+                else True
+            ),
+            "timeout_seconds": 8,
+            "max_attempts": 1,
+        },
         "monitoring": request.app.state.observability_service.capabilities(),
     }
 

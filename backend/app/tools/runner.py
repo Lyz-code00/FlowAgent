@@ -48,10 +48,15 @@ class ToolRunner:
             self.permission_service.require(
                 role=context.user_role, permission=tool.permission
             )
-            attempts = self.max_attempts if tool.retryable else 1
+            attempts = (
+                max(1, tool.max_attempts or self.max_attempts)
+                if tool.retryable
+                else 1
+            )
+            timeout_seconds = tool.timeout_seconds or self.timeout_seconds
             for attempt in range(1, attempts + 1):
                 try:
-                    async with asyncio.timeout(self.timeout_seconds):
+                    async with asyncio.timeout(timeout_seconds):
                         result = await tool.run(context, args)
                     if attempt > 1:
                         result.display_data["retry_attempts"] = attempt

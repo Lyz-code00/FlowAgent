@@ -30,6 +30,8 @@ class Tool(ABC):
     description: str
     permission: str = "read"
     retryable: bool = False
+    timeout_seconds: float | None = None
+    max_attempts: int | None = None
     args_model: type[BaseModel] = EmptyArgs
 
     def definition(self) -> dict[str, Any]:

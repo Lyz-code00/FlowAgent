@@ -46,8 +46,9 @@ async def test_quality_metrics_use_real_samples_and_track_duplicates(tmp_path) -
             await session.flush()
             session.add_all(
                 [
-                    AgentStep(run_id=agent_run.id, step_no=1, kind="tool", status="succeeded", name="knowledge_search"),
-                    AgentStep(run_id=agent_run.id, step_no=2, kind="llm", status="succeeded", name="test-model"),
+                    AgentStep(run_id=agent_run.id, step_no=1, kind="tool", status="succeeded", name="knowledge_search", latency_ms=40),
+                    AgentStep(run_id=agent_run.id, step_no=2, kind="llm", status="succeeded", name="test-model", latency_ms=200),
+                    AgentStep(run_id=agent_run.id, step_no=3, kind="tool", status="failed", name="github_get_file", latency_ms=20, error="invalid tool arguments"),
                 ]
             )
             session.add(
@@ -65,13 +66,19 @@ async def test_quality_metrics_use_real_samples_and_track_duplicates(tmp_path) -
 
         result = await QualityService(factory).metrics(days=30)
         values = {item["key"]: item for item in result["metrics"]}
-        assert values["tool_success_rate"]["value"] == 100
+        assert values["tool_success_rate"]["value"] == 50
         assert values["issue_success_rate"]["value"] == 100
         assert values["citation_coverage"]["value"] == 100
         assert values["event_dedup_rate"]["value"] == 100
         assert values["context_issue_success_rate"]["value"] == 100
         assert values["positive_feedback_rate"]["value"] == 100
         assert values["p95_response_ms"]["value"] == 1200
+        assert result["tool_breakdown"][0]["tool_name"] == "github_get_file"
+        assert result["tool_breakdown"][0]["failed"] == 1
+        assert result["failure_categories"][0]["category"] == "validation"
+        latency = {item["stage"]: item for item in result["latency_breakdown"]}
+        assert latency["llm_step"]["p95_ms"] == 200
+        assert latency["tool_step"]["average_ms"] == 30
     finally:
         await engine.dispose()
 

@@ -24,6 +24,27 @@ export interface QualityMetricsResponse {
   window_days: number;
   generated_at: string;
   metrics: QualityMetric[];
+  tool_breakdown: Array<{
+    tool_name: string;
+    attempts: number;
+    succeeded: number;
+    failed: number;
+    success_rate: number | null;
+    average_latency_ms: number | null;
+    p95_latency_ms: number | null;
+  }>;
+  failure_categories: Array<{
+    category: string;
+    count: number;
+    tools: string[];
+    examples: string[];
+  }>;
+  latency_breakdown: Array<{
+    stage: "agent_run" | "llm_step" | "tool_step";
+    samples: number;
+    average_ms: number | null;
+    p95_ms: number | null;
+  }>;
 }
 
 export interface QualityBenchmarkResponse {
@@ -128,6 +149,12 @@ export interface RuntimeConfig {
     default_top_k: number;
   };
   feishu: { configured: boolean };
+  web_search: {
+    backend: string;
+    configured: boolean;
+    timeout_seconds: number;
+    max_attempts: number;
+  };
   monitoring: {
     health_services: string[];
     prometheus: boolean;

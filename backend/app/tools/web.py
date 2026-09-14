@@ -26,6 +26,10 @@ class WebSearchTool(Tool):
     )
     args_model = WebSearchArgs
     retryable = True
+    # Public search endpoints are frequently blocked rather than transiently slow.
+    # Fail fast so one unavailable provider cannot consume 3 x the global timeout.
+    timeout_seconds = 8
+    max_attempts = 1
 
     def __init__(self, service: WebService) -> None:
         self.service = service
@@ -58,6 +62,8 @@ class OpenUrlTool(Tool):
     )
     args_model = OpenUrlArgs
     retryable = True
+    timeout_seconds = 10
+    max_attempts = 2
 
     def __init__(self, service: WebService) -> None:
         self.service = service
